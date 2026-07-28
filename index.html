@@ -46,8 +46,8 @@
   }
   .sub{color:var(--ink-soft);margin:10px 0 0;font-size:15px}
 
+  .controls{margin:26px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
   .locate{
-    margin:26px 0 0;
     display:inline-flex;align-items:center;gap:12px;
     font:600 17px/1 var(--sans);
     color:#fff;background:var(--contour);
@@ -56,6 +56,15 @@
     box-shadow:0 2px 0 var(--contour-dark);
     transition:transform .12s ease, box-shadow .12s ease, background .2s ease;
   }
+  .clear{
+    font:600 15px/1 var(--sans);color:var(--ink-soft);background:transparent;
+    border:1px solid var(--line);border-radius:12px;
+    padding:14px 20px;cursor:pointer;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .clear:hover{color:var(--signal);border-color:var(--signal)}
+  .clear:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
+  .clear[hidden]{display:none}
   .locate:hover{background:var(--contour-dark)}
   .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
   .locate:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
@@ -125,10 +134,13 @@
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
   </header>
 
-  <button id="btn" class="locate" type="button">
-    <span class="dot"></span>
-    <span id="btn-label">Me localiser</span>
-  </button>
+  <div class="controls">
+    <button id="btn" class="locate" type="button">
+      <span class="dot"></span>
+      <span id="btn-label">Me localiser</span>
+    </button>
+    <button id="clear" class="clear" type="button" hidden>Effacer</button>
+  </div>
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
@@ -136,12 +148,16 @@
 </div>
 
 <script>
-const btn    = document.getElementById('btn');
-const label  = document.getElementById('btn-label');
-const status = document.getElementById('status');
-const result = document.getElementById('result');
+const btn      = document.getElementById('btn');
+const clearBtn = document.getElementById('clear');
+const label    = document.getElementById('btn-label');
+const status   = document.getElementById('status');
+const result   = document.getElementById('result');
+
+const STORE_KEY = 'ou-suis-je:last';
 
 btn.addEventListener('click', locate);
+clearBtn.addEventListener('click', clearSaved);
 
 function setStatus(msg, isError){
   status.textContent = msg;
@@ -200,6 +216,7 @@ async function onPosition(pos){
   // Les coordonnées s'affichent en dernier, en bas de page
   renderCoords(latitude, longitude, accuracy);
 
+  save();
   reset();
   setStatus('Terminé.');
 }
@@ -208,6 +225,43 @@ function reset(){
   btn.disabled = false;
   btn.classList.remove('loading');
   label.textContent = 'Me localiser à nouveau';
+}
+
+// --- Mémoire locale (localStorage) : conserve la dernière géolocalisation ---
+function save(){
+  try{
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      at: Date.now(),
+      html: result.innerHTML
+    }));
+  }catch(e){ /* stockage indisponible : on continue sans mémoriser */ }
+  updateClearButton();
+}
+
+function restore(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); }catch(e){}
+  if(saved && saved.html){
+    result.innerHTML = saved.html;
+    label.textContent = 'Me localiser à nouveau';
+    const when = new Date(saved.at).toLocaleString('fr-FR');
+    setStatus('Dernière position mémorisée le ' + when + '.');
+  }
+  updateClearButton();
+}
+
+function clearSaved(){
+  try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+  result.innerHTML = '';
+  label.textContent = 'Me localiser';
+  setStatus('Mémoire effacée.');
+  updateClearButton();
+}
+
+function updateClearButton(){
+  let has = false;
+  try{ has = !!localStorage.getItem(STORE_KEY); }catch(e){}
+  clearBtn.hidden = !has;
 }
 
 function card(html){
@@ -339,6 +393,9 @@ async function lookupWikipedia(lat, lon){
     el.innerHTML = `<h2>À propos du lieu</h2><p class="muted">Wikipédia indisponible (${esc(e.message)}).</p>`;
   }
 }
+
+// Au lancement : réaffiche la dernière géolocalisation mémorisée
+restore();
 </script>
 </body>
 </html>
