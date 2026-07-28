@@ -188,15 +188,17 @@ async function onPosition(pos){
   label.textContent = 'Recherche du lieu…';
   setStatus('Position obtenue. Recherche des informations…');
 
-  renderCoords(latitude, longitude, accuracy);
   renderMap(latitude, longitude);
 
-  // Les deux requêtes web tournent en parallèle
+  // Les requêtes web tournent en parallèle
   await Promise.allSettled([
     lookupAddress(latitude, longitude),
     lookupPhotos(latitude, longitude),
     lookupWikipedia(latitude, longitude)
   ]);
+
+  // Les coordonnées s'affichent en dernier, en bas de page
+  renderCoords(latitude, longitude, accuracy);
 
   reset();
   setStatus('Terminé.');
