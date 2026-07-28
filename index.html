@@ -1,1 +1,285 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Où suis-je ?</title>
+<style>
+  :root{
+    --ink:#16232f;
+    --ink-soft:#4a5b68;
+    --paper:#eef1f4;
+    --card:#ffffff;
+    --line:#d6dde3;
+    --contour:#1f7a6d;      /* vert de courbe de niveau */
+    --contour-dark:#155a50;
+    --signal:#c0492f;       /* rouge signal, usage rare */
+    --brass:#b8912f;
+    --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono","Menlo","Consolas",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:
+      radial-gradient(circle at 1px 1px, rgba(31,122,109,.10) 1px, transparent 0) 0 0/26px 26px,
+      var(--paper);
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:32px 18px 64px;
+    line-height:1.55;
+  }
+  .wrap{width:100%;max-width:640px}
 
+  header{margin-bottom:28px}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--contour-dark);margin:0 0 8px;
+  }
+  h1{
+    font-size:clamp(30px,7vw,44px);
+    line-height:1.02;margin:0;font-weight:700;letter-spacing:-.02em;
+  }
+  .sub{color:var(--ink-soft);margin:10px 0 0;font-size:15px}
+
+  .locate{
+    margin:26px 0 0;
+    display:inline-flex;align-items:center;gap:12px;
+    font:600 17px/1 var(--sans);
+    color:#fff;background:var(--contour);
+    border:none;border-radius:12px;
+    padding:16px 26px;cursor:pointer;
+    box-shadow:0 2px 0 var(--contour-dark);
+    transition:transform .12s ease, box-shadow .12s ease, background .2s ease;
+  }
+  .locate:hover{background:var(--contour-dark)}
+  .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
+  .locate:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
+  .locate[disabled]{opacity:.6;cursor:progress}
+  .dot{
+    width:11px;height:11px;border-radius:50%;
+    background:#fff;box-shadow:0 0 0 4px rgba(255,255,255,.28);
+  }
+  .locate.loading .dot{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{50%{transform:scale(.5);opacity:.5}}
+
+  .status{
+    margin:18px 0 0;font-family:var(--mono);font-size:13px;color:var(--ink-soft);
+    min-height:18px;
+  }
+  .status.error{color:var(--signal)}
+
+  #result{margin-top:22px;display:grid;gap:16px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:20px 22px;
+  }
+  .card h2{
+    margin:0 0 4px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--contour-dark);font-family:var(--mono);font-weight:600;
+  }
+  .coords{font-family:var(--mono);font-size:18px;letter-spacing:.01em}
+  .coords small{color:var(--ink-soft);font-size:12px}
+  .place-name{font-size:20px;font-weight:700;margin:2px 0 4px;letter-spacing:-.01em}
+  .place-detail{color:var(--ink-soft);font-size:14px}
+  .extract{margin:6px 0 0;font-size:15px}
+  .extract a{color:var(--contour-dark)}
+  .map{
+    border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    aspect-ratio:16/10;background:#dfe6ea;
+  }
+  .map iframe{width:100%;height:100%;border:0;display:block}
+  .muted{color:var(--ink-soft);font-size:14px}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Relevé de position</p>
+    <h1>Où suis-je&nbsp;?</h1>
+    <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
+  </header>
+
+  <button id="btn" class="locate" type="button">
+    <span class="dot"></span>
+    <span id="btn-label">Me localiser</span>
+  </button>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <div id="result"></div>
+</div>
+
+<script>
+const btn    = document.getElementById('btn');
+const label  = document.getElementById('btn-label');
+const status = document.getElementById('status');
+const result = document.getElementById('result');
+
+btn.addEventListener('click', locate);
+
+function setStatus(msg, isError){
+  status.textContent = msg;
+  status.classList.toggle('error', !!isError);
+}
+
+function locate(){
+  result.innerHTML = '';
+
+  if (!('geolocation' in navigator)){
+    setStatus("La géolocalisation n'est pas disponible sur ce navigateur.", true);
+    return;
+  }
+  // La géolocalisation exige un contexte sécurisé (https:// ou localhost)
+  if (!window.isSecureContext){
+    setStatus("La page doit être servie en HTTPS pour accéder au GPS.", true);
+    return;
+  }
+
+  btn.disabled = true;
+  btn.classList.add('loading');
+  label.textContent = 'Lecture GPS…';
+  setStatus('Autorise la géolocalisation dans ton navigateur…');
+
+  navigator.geolocation.getCurrentPosition(onPosition, onError, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0
+  });
+}
+
+function onError(err){
+  reset();
+  const messages = {
+    1: "Accès refusé. Autorise la localisation pour ce site puis réessaie.",
+    2: "Position indisponible pour le moment. Réessaie dans un instant.",
+    3: "Délai dépassé. Réessaie."
+  };
+  setStatus(messages[err.code] || ("Erreur : " + err.message), true);
+}
+
+async function onPosition(pos){
+  const { latitude, longitude, accuracy } = pos.coords;
+  label.textContent = 'Recherche du lieu…';
+  setStatus('Position obtenue. Recherche des informations…');
+
+  renderCoords(latitude, longitude, accuracy);
+  renderMap(latitude, longitude);
+
+  // Les deux requêtes web tournent en parallèle
+  await Promise.allSettled([
+    lookupAddress(latitude, longitude),
+    lookupWikipedia(latitude, longitude)
+  ]);
+
+  reset();
+  setStatus('Terminé.');
+}
+
+function reset(){
+  btn.disabled = false;
+  btn.classList.remove('loading');
+  label.textContent = 'Me localiser à nouveau';
+}
+
+function card(html){
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = html;
+  result.appendChild(el);
+  return el;
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+
+function renderCoords(lat, lon, acc){
+  card(`
+    <h2>Coordonnées</h2>
+    <div class="coords">
+      ${lat.toFixed(6)}, ${lon.toFixed(6)}
+      <small>— précision ± ${Math.round(acc)} m</small>
+    </div>
+  `);
+}
+
+function renderMap(lat, lon){
+  const d = 0.01;
+  const bbox = [lon-d, lat-d, lon+d, lat+d].join(',');
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
+  const el = card(`<h2>Carte</h2>`);
+  const map = document.createElement('div');
+  map.className = 'map';
+  map.innerHTML = `<iframe loading="lazy" title="Carte de la position" src="${src}"></iframe>`;
+  el.appendChild(map);
+}
+
+// --- Adresse : Nominatim (OpenStreetMap), gratuit et sans clé ---
+async function lookupAddress(lat, lon){
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2`
+            + `&lat=${lat}&lon=${lon}&accept-language=fr&zoom=16`;
+  const el = card(`<h2>Lieu</h2><p class="muted">Recherche de l'adresse…</p>`);
+  try{
+    const r = await fetch(url, { headers: { 'Accept':'application/json' } });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    const a = d.address || {};
+    const name = a.city || a.town || a.village || a.municipality
+              || a.county || a.state || d.name || 'Lieu inconnu';
+    el.innerHTML = `
+      <h2>Lieu</h2>
+      <div class="place-name">${esc(name)}</div>
+      <div class="place-detail">${esc(d.display_name || '')}</div>
+    `;
+  }catch(e){
+    el.innerHTML = `<h2>Lieu</h2><p class="muted">Adresse indisponible (${esc(e.message)}).</p>`;
+  }
+}
+
+// --- Description : Wikipédia (fr), article le plus proche ---
+async function lookupWikipedia(lat, lon){
+  const el = card(`<h2>À propos du lieu</h2><p class="muted">Recherche sur Wikipédia…</p>`);
+  try{
+    const geo = `https://fr.wikipedia.org/w/api.php?action=query&list=geosearch`
+              + `&gscoord=${lat}%7C${lon}&gsradius=10000&gslimit=1&format=json&origin=*`;
+    const gr = await fetch(geo);
+    const gd = await gr.json();
+    const hit = gd?.query?.geosearch?.[0];
+    if(!hit){
+      el.innerHTML = `<h2>À propos du lieu</h2><p class="muted">Aucun article Wikipédia à proximité.</p>`;
+      return;
+    }
+    const title = hit.title;
+    const ext = `https://fr.wikipedia.org/w/api.php?action=query&prop=extracts`
+              + `&exintro=1&explaintext=1&titles=${encodeURIComponent(title)}`
+              + `&format=json&origin=*`;
+    const er = await fetch(ext);
+    const ed = await er.json();
+    const pages = ed?.query?.pages || {};
+    const page = Object.values(pages)[0] || {};
+    const summary = (page.extract || '').trim();
+    const link = 'https://fr.wikipedia.org/wiki/' + encodeURIComponent(title);
+    el.innerHTML = `
+      <h2>À propos du lieu</h2>
+      <div class="place-name">${esc(title)}</div>
+      <p class="extract">${esc(summary) || 'Pas de résumé disponible.'}</p>
+      <p class="extract"><a href="${link}" target="_blank" rel="noopener">Lire sur Wikipédia →</a></p>
+    `;
+  }catch(e){
+    el.innerHTML = `<h2>À propos du lieu</h2><p class="muted">Wikipédia indisponible (${esc(e.message)}).</p>`;
+  }
+}
+</script>
+</body>
+</html>
