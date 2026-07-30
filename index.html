@@ -173,7 +173,19 @@
   .history-list li{
     background:var(--card);border:1px solid var(--line);
     border-radius:12px;padding:12px 14px;
+    display:flex;justify-content:space-between;align-items:center;
+    gap:12px;flex-wrap:wrap;
   }
+  .hist-info{min-width:0}
+  .hist-actions{display:flex;gap:8px;flex-shrink:0}
+  .hist-btn{
+    font:600 13px/1 var(--sans);background:transparent;color:var(--ink-soft);
+    border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;
+    transition:color .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .hist-btn.show:hover{color:#fff;background:var(--contour);border-color:var(--contour)}
+  .hist-btn.del:hover{color:var(--signal);border-color:var(--signal)}
+  .hist-btn:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
   .hist-date{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
   .hist-addr{font-size:15px;margin:2px 0 0}
   .hist-coords{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin:3px 0 0}
@@ -328,35 +340,47 @@ function onError(err){
 
 async function onPosition(pos){
   const { latitude, longitude, accuracy } = pos.coords;
-  label.textContent = 'Recherche du lieu…';
-  setStatus('Position obtenue. Recherche des informations…');
+  await showPlace(latitude, longitude, { accuracy, log: true });
+}
 
-  renderMap(latitude, longitude);
+// Affiche toutes les infos d'un lieu (GPS ou historique).
+// log=true => enregistre une nouvelle entrée d'historique ; log=false => simple réaffichage.
+async function showPlace(lat, lon, opts){
+  const accuracy = (opts && 'accuracy' in opts) ? opts.accuracy : null;
+  const log = !!(opts && opts.log);
+
+  result.innerHTML = '';                 // l'affichage courant est remplacé
+  label.textContent = 'Recherche du lieu…';
+  setStatus('Recherche des informations…');
+
+  renderMap(lat, lon);
 
   // Les requêtes web tournent en parallèle
   const results = await Promise.allSettled([
-    lookupAddress(latitude, longitude),
-    lookupPhotos(latitude, longitude),
-    lookupWikipedia(latitude, longitude)
+    lookupAddress(lat, lon),
+    lookupPhotos(lat, lon),
+    lookupWikipedia(lat, lon)
   ]);
   const addrRes = results[0];
   const adresse = (addrRes.status === 'fulfilled' && addrRes.value) ? addrRes.value : '';
 
-  // Les coordonnées s'affichent en dernier, en bas de page
-  renderCoords(latitude, longitude, accuracy);
+  // Les coordonnées s'affichent en dernier, en bas de l'affichage
+  renderCoords(lat, lon, accuracy);
 
   save();
 
-  // Journal : une ligne par consultation (date, coordonnées, adresse)
-  await addHistoryEntry({
-    date: new Date().toISOString(),
-    lat: +latitude.toFixed(6),
-    lon: +longitude.toFixed(6),
-    adresse: adresse
-  });
+  // Journal : une ligne par consultation (uniquement pour une vraie géolocalisation)
+  if(log){
+    await addHistoryEntry({
+      date: new Date().toISOString(),
+      lat: +(+lat).toFixed(6),
+      lon: +(+lon).toFixed(6),
+      adresse: adresse
+    });
+  }
 
   reset();
-  if(!getToken()) setStatus('Terminé.');
+  if(!(log && getToken())) setStatus('Terminé.');
 }
 
 function reset(){
@@ -437,15 +461,46 @@ function renderHistory(list){
     empty.hidden = true;
     for(const e of list){
       const li = document.createElement('li');
-      const when = new Date(e.date).toLocaleString('fr-FR');
-      li.innerHTML = `
-        <div class="hist-date">${esc(when)}</div>
+
+      const info = document.createElement('div');
+      info.className = 'hist-info';
+      info.innerHTML = `
+        <div class="hist-date">${esc(new Date(e.date).toLocaleString('fr-FR'))}</div>
         <div class="hist-addr">${esc(e.adresse || 'Adresse inconnue')}</div>
         <div class="hist-coords">${(+e.lat).toFixed(6)}, ${(+e.lon).toFixed(6)}</div>`;
+
+      const actions = document.createElement('div');
+      actions.className = 'hist-actions';
+
+      const showBtn = document.createElement('button');
+      showBtn.type = 'button';
+      showBtn.className = 'hist-btn show';
+      showBtn.textContent = 'Revoir';
+      showBtn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        showPlace(+e.lat, +e.lon, { log: false });
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'hist-btn del';
+      delBtn.textContent = 'Supprimer';
+      delBtn.addEventListener('click', () => removeHistoryEntry(entryKey(e)));
+
+      actions.appendChild(showBtn);
+      actions.appendChild(delBtn);
+      li.appendChild(info);
+      li.appendChild(actions);
       ol.appendChild(li);
     }
   }
   updateDownload(list);
+}
+async function removeHistoryEntry(key){
+  const list = loadLocalHistory().filter(e => entryKey(e) !== key);
+  saveLocalHistory(list);
+  renderHistory(list);
+  if(getToken()) await syncToGitHub(list);   // propage la suppression sur GitHub
 }
 function updateDownload(list){
   const dl = document.getElementById('dl');
@@ -544,12 +599,11 @@ function esc(s){
 }
 
 function renderCoords(lat, lon, acc){
+  const prec = (acc != null && isFinite(acc))
+    ? ` <small>— précision ± ${Math.round(acc)} m</small>` : '';
   card(`
     <h2>Coordonnées</h2>
-    <div class="coords">
-      ${lat.toFixed(6)}, ${lon.toFixed(6)}
-      <small>— précision ± ${Math.round(acc)} m</small>
-    </div>
+    <div class="coords">${(+lat).toFixed(6)}, ${(+lon).toFixed(6)}${prec}</div>
   `);
 }
 
