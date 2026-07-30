@@ -73,6 +73,34 @@
   }
   .toggle:hover{color:var(--contour-dark);border-color:var(--contour)}
   .toggle:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
+
+  .gh-panel{
+    margin:14px 0 0;padding:16px;border:1px solid var(--line);
+    border-radius:12px;background:var(--card);
+  }
+  .gh-panel[hidden]{display:none}
+  .gh-label{display:block;font-size:13px;color:var(--ink-soft);margin-bottom:8px}
+  .gh-row{display:flex;gap:8px;flex-wrap:wrap}
+  .gh-input{
+    flex:1;min-width:200px;font-family:var(--mono);font-size:14px;
+    padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+    background:var(--paper);color:var(--ink);
+  }
+  .gh-input:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  .gh-save{
+    font:600 15px/1 var(--sans);color:#fff;background:var(--contour);
+    border:none;border-radius:10px;padding:12px 20px;cursor:pointer;
+    box-shadow:0 2px 0 var(--contour-dark);
+  }
+  .gh-save:hover{background:var(--contour-dark)}
+  .gh-save:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  .gh-note{font-size:12px;color:var(--ink-soft);margin:10px 0 0;line-height:1.5}
+  .linklike{
+    background:none;border:none;color:var(--signal);font:inherit;
+    cursor:pointer;padding:0;text-decoration:underline;
+  }
+  .linklike[hidden]{display:none}
+
   .locate:hover{background:var(--contour-dark)}
   .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
   .locate:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
@@ -169,6 +197,20 @@
     </button>
     <button id="clear" class="clear" type="button" hidden>Effacer</button>
     <button id="toggle-hist" class="toggle" type="button">Historique</button>
+    <button id="gh-btn" class="toggle" type="button">Connexion GitHub</button>
+  </div>
+
+  <div id="gh-panel" class="gh-panel" hidden>
+    <label class="gh-label" for="gh-token">Token GitHub — accès en écriture au dépôt Tourisme</label>
+    <div class="gh-row">
+      <input id="gh-token" class="gh-input" type="password" autocomplete="off" placeholder="github_pat_… ou ghp_…">
+      <button id="gh-save" class="gh-save" type="button">Enregistrer</button>
+    </div>
+    <p class="gh-note">
+      Le token n'est stocké que dans ce navigateur (localStorage) et n'apparaît jamais dans la page publiée.
+      Utilise de préférence un token « fine-grained » limité au dépôt Tourisme, permission Contents : Read and write.
+      <button id="gh-forget" class="linklike" type="button" hidden>Déconnecter</button>
+    </p>
   </div>
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -197,14 +239,44 @@ const STORE_KEY = 'ou-suis-je:last';
 const HISTORY_URL = 'https://hammerinhank.github.io/Tourisme/visites.json';
 const HISTORY_KEY = 'ou-suis-je:historique';
 
+// --- Configuration GitHub (écriture du fichier via l'API) ---
+const GH_OWNER  = 'hammerinhank';
+const GH_REPO   = 'Tourisme';
+const GH_PATH   = 'visites.json';
+const GH_BRANCH = 'main';            // adapte si GitHub Pages sert une autre branche
+const GH_TOKEN_KEY = 'ou-suis-je:gh-token';
+
 const histSection = document.getElementById('history');
 const toggleHist  = document.getElementById('toggle-hist');
+const ghBtn       = document.getElementById('gh-btn');
+const ghPanel     = document.getElementById('gh-panel');
+const ghInput     = document.getElementById('gh-token');
+const ghForget    = document.getElementById('gh-forget');
 
 btn.addEventListener('click', locate);
 clearBtn.addEventListener('click', clearSaved);
 toggleHist.addEventListener('click', () => {
   histSection.hidden = !histSection.hidden;
   toggleHist.textContent = histSection.hidden ? 'Historique' : "Masquer l'historique";
+});
+
+ghBtn.addEventListener('click', () => {
+  ghPanel.hidden = !ghPanel.hidden;
+  if(!ghPanel.hidden){ ghInput.value = ''; ghInput.focus(); }
+});
+document.getElementById('gh-save').addEventListener('click', async () => {
+  const t = ghInput.value.trim();
+  if(!t){ setStatus('Aucun token saisi.', true); return; }
+  setToken(t);
+  ghInput.value = '';
+  ghPanel.hidden = true;
+  setStatus('Token enregistré. Synchronisation…');
+  await syncToGitHub(loadLocalHistory());
+});
+ghForget.addEventListener('click', () => {
+  setToken('');
+  ghInput.value = '';
+  setStatus('Token GitHub supprimé de ce navigateur.');
 });
 
 function setStatus(msg, isError){
@@ -269,7 +341,7 @@ async function onPosition(pos){
   save();
 
   // Journal : une ligne par consultation (date, coordonnées, adresse)
-  addHistoryEntry({
+  await addHistoryEntry({
     date: new Date().toISOString(),
     lat: +latitude.toFixed(6),
     lon: +longitude.toFixed(6),
@@ -277,7 +349,7 @@ async function onPosition(pos){
   });
 
   reset();
-  setStatus('Terminé.');
+  if(!getToken()) setStatus('Terminé.');
 }
 
 function reset(){
@@ -342,10 +414,11 @@ function mergeHistory(a, b){
   out.sort((x, y) => new Date(y.date) - new Date(x.date));
   return out;
 }
-function addHistoryEntry(entry){
+async function addHistoryEntry(entry){
   const list = mergeHistory(loadLocalHistory(), [entry]);
-  saveLocalHistory(list);
+  saveLocalHistory(list);          // mémoire locale, conservée dans tous les cas
   renderHistory(list);
+  if(getToken()) await syncToGitHub(list);   // duplication sur GitHub si connecté
 }
 function renderHistory(list){
   const ol    = document.getElementById('history-list');
@@ -374,6 +447,67 @@ function updateDownload(list){
   dl._url = URL.createObjectURL(blob);
   dl.href = dl._url;
 }
+// --- GitHub : duplication du journal dans visites.json via l'API ---
+function getToken(){
+  try{ return localStorage.getItem(GH_TOKEN_KEY) || ''; }catch(e){ return ''; }
+}
+function setToken(t){
+  try{
+    if(t) localStorage.setItem(GH_TOKEN_KEY, t);
+    else  localStorage.removeItem(GH_TOKEN_KEY);
+  }catch(e){}
+  updateGhUI();
+}
+function updateGhUI(){
+  const has = !!getToken();
+  ghBtn.textContent = has ? 'GitHub ✓' : 'Connexion GitHub';
+  ghForget.hidden = !has;
+}
+function ghHeaders(){
+  return {
+    'Authorization': 'Bearer ' + getToken(),
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json'
+  };
+}
+function utf8ToBase64(str){
+  return btoa(unescape(encodeURIComponent(str)));
+}
+async function ghGetSha(){
+  const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_PATH}?ref=${GH_BRANCH}`;
+  const r = await fetch(url, { headers: ghHeaders() });
+  if(r.status === 200){ const d = await r.json(); return d.sha; }
+  if(r.status === 404) return null;               // fichier pas encore créé
+  throw new Error('lecture (HTTP ' + r.status + ')');
+}
+async function syncToGitHub(list){
+  if(!getToken()) return;
+  setStatus('Synchronisation GitHub…');
+  const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_PATH}`;
+  const makeBody = (sha) => JSON.stringify({
+    message: 'Mise à jour visites.json — ' + new Date().toISOString(),
+    content: utf8ToBase64(JSON.stringify(list, null, 2)),
+    branch: GH_BRANCH,
+    ...(sha ? { sha } : {})
+  });
+  try{
+    let sha = await ghGetSha();
+    let r = await fetch(url, { method:'PUT', headers: ghHeaders(), body: makeBody(sha) });
+    if(r.status === 409){                          // conflit de version : on relit et on réessaie
+      sha = await ghGetSha();
+      r = await fetch(url, { method:'PUT', headers: ghHeaders(), body: makeBody(sha) });
+    }
+    if(!r.ok){
+      const info = await r.json().catch(() => ({}));
+      throw new Error(info.message || ('HTTP ' + r.status));
+    }
+    setStatus('Journal synchronisé sur GitHub.');
+  }catch(e){
+    setStatus('Échec de la synchro GitHub : ' + e.message, true);
+  }
+}
+
 // Au lancement : lit le fichier publié puis fusionne avec le journal local
 async function initHistory(){
   let history = loadLocalHistory();
@@ -525,6 +659,7 @@ async function lookupWikipedia(lat, lon){
 // Au lancement : réaffiche la dernière géolocalisation mémorisée + le journal
 restore();
 initHistory();
+updateGhUI();
 </script>
 </body>
 </html>
