@@ -65,6 +65,14 @@
   .clear:hover{color:var(--signal);border-color:var(--signal)}
   .clear:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
   .clear[hidden]{display:none}
+  .toggle{
+    font:600 15px/1 var(--sans);color:var(--ink-soft);background:transparent;
+    border:1px solid var(--line);border-radius:12px;
+    padding:14px 20px;cursor:pointer;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .toggle:hover{color:var(--contour-dark);border-color:var(--contour)}
+  .toggle:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
   .locate:hover{background:var(--contour-dark)}
   .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
   .locate:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
@@ -121,6 +129,26 @@
   }
   .gallery a{color:var(--contour-dark);text-decoration:none}
 
+  .history{margin-top:26px;border-top:1px solid var(--line);padding-top:20px}
+  .history[hidden]{display:none}
+  .history-head{
+    display:flex;justify-content:space-between;align-items:baseline;
+    gap:12px;flex-wrap:wrap;
+  }
+  .history-head h2{
+    margin:0;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--contour-dark);font-family:var(--mono);font-weight:600;
+  }
+  .dl{font-family:var(--mono);font-size:12px;color:var(--contour-dark)}
+  .history-list{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:10px}
+  .history-list li{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;
+  }
+  .hist-date{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+  .hist-addr{font-size:15px;margin:2px 0 0}
+  .hist-coords{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin:3px 0 0}
+
   @media (prefers-reduced-motion:reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -140,11 +168,21 @@
       <span id="btn-label">Me localiser</span>
     </button>
     <button id="clear" class="clear" type="button" hidden>Effacer</button>
+    <button id="toggle-hist" class="toggle" type="button">Historique</button>
   </div>
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
   <div id="result"></div>
+
+  <section id="history" class="history" hidden>
+    <div class="history-head">
+      <h2>Lieux consultés</h2>
+      <a id="dl" class="dl" download="visites.json">Télécharger visites.json</a>
+    </div>
+    <ol id="history-list" class="history-list"></ol>
+    <p id="history-empty" class="muted" hidden>Aucun lieu enregistré pour l'instant.</p>
+  </section>
 </div>
 
 <script>
@@ -156,8 +194,18 @@ const result   = document.getElementById('result');
 
 const STORE_KEY = 'ou-suis-je:last';
 
+const HISTORY_URL = 'https://hammerinhank.github.io/Tourisme/visites.json';
+const HISTORY_KEY = 'ou-suis-je:historique';
+
+const histSection = document.getElementById('history');
+const toggleHist  = document.getElementById('toggle-hist');
+
 btn.addEventListener('click', locate);
 clearBtn.addEventListener('click', clearSaved);
+toggleHist.addEventListener('click', () => {
+  histSection.hidden = !histSection.hidden;
+  toggleHist.textContent = histSection.hidden ? 'Historique' : "Masquer l'historique";
+});
 
 function setStatus(msg, isError){
   status.textContent = msg;
@@ -207,16 +255,27 @@ async function onPosition(pos){
   renderMap(latitude, longitude);
 
   // Les requêtes web tournent en parallèle
-  await Promise.allSettled([
+  const results = await Promise.allSettled([
     lookupAddress(latitude, longitude),
     lookupPhotos(latitude, longitude),
     lookupWikipedia(latitude, longitude)
   ]);
+  const addrRes = results[0];
+  const adresse = (addrRes.status === 'fulfilled' && addrRes.value) ? addrRes.value : '';
 
   // Les coordonnées s'affichent en dernier, en bas de page
   renderCoords(latitude, longitude, accuracy);
 
   save();
+
+  // Journal : une ligne par consultation (date, coordonnées, adresse)
+  addHistoryEntry({
+    date: new Date().toISOString(),
+    lat: +latitude.toFixed(6),
+    lon: +longitude.toFixed(6),
+    adresse: adresse
+  });
+
   reset();
   setStatus('Terminé.');
 }
@@ -262,6 +321,71 @@ function updateClearButton(){
   let has = false;
   try{ has = !!localStorage.getItem(STORE_KEY); }catch(e){}
   clearBtn.hidden = !has;
+}
+
+// --- Journal des lieux consultés ---
+function loadLocalHistory(){
+  try{ return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }catch(e){ return []; }
+}
+function saveLocalHistory(list){
+  try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); }catch(e){}
+}
+function entryKey(e){
+  return `${e.date}|${(+e.lat).toFixed(6)}|${(+e.lon).toFixed(6)}`;
+}
+function mergeHistory(a, b){
+  const seen = new Set(a.map(entryKey));
+  const out = a.slice();
+  for(const e of b){
+    if(e && e.date != null && !seen.has(entryKey(e))){ seen.add(entryKey(e)); out.push(e); }
+  }
+  out.sort((x, y) => new Date(y.date) - new Date(x.date));
+  return out;
+}
+function addHistoryEntry(entry){
+  const list = mergeHistory(loadLocalHistory(), [entry]);
+  saveLocalHistory(list);
+  renderHistory(list);
+}
+function renderHistory(list){
+  const ol    = document.getElementById('history-list');
+  const empty = document.getElementById('history-empty');
+  ol.innerHTML = '';
+  if(!list.length){
+    empty.hidden = false;
+  }else{
+    empty.hidden = true;
+    for(const e of list){
+      const li = document.createElement('li');
+      const when = new Date(e.date).toLocaleString('fr-FR');
+      li.innerHTML = `
+        <div class="hist-date">${esc(when)}</div>
+        <div class="hist-addr">${esc(e.adresse || 'Adresse inconnue')}</div>
+        <div class="hist-coords">${(+e.lat).toFixed(6)}, ${(+e.lon).toFixed(6)}</div>`;
+      ol.appendChild(li);
+    }
+  }
+  updateDownload(list);
+}
+function updateDownload(list){
+  const dl = document.getElementById('dl');
+  const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
+  if(dl._url) URL.revokeObjectURL(dl._url);
+  dl._url = URL.createObjectURL(blob);
+  dl.href = dl._url;
+}
+// Au lancement : lit le fichier publié puis fusionne avec le journal local
+async function initHistory(){
+  let history = loadLocalHistory();
+  try{
+    const r = await fetch(HISTORY_URL, { cache: 'no-store' });
+    if(r.ok){
+      const remote = await r.json();
+      if(Array.isArray(remote)) history = mergeHistory(history, remote);
+    }
+  }catch(e){ /* fichier absent ou hors-ligne : on garde le journal local */ }
+  saveLocalHistory(history);
+  renderHistory(history);
 }
 
 function card(html){
@@ -320,8 +444,12 @@ async function lookupAddress(lat, lon){
       <div class="place-name">${esc(name)}</div>
       <div class="addr">${lines || esc(d.display_name || '')}</div>
     `;
+    // adresse en clair, sur une ligne, pour le journal
+    const plain = [street, cityLine, a.country].filter(Boolean).join(', ');
+    return plain || d.display_name || name;
   }catch(e){
     el.innerHTML = `<h2>Adresse</h2><p class="muted">Adresse indisponible (${esc(e.message)}).</p>`;
+    return '';
   }
 }
 
@@ -394,8 +522,9 @@ async function lookupWikipedia(lat, lon){
   }
 }
 
-// Au lancement : réaffiche la dernière géolocalisation mémorisée
+// Au lancement : réaffiche la dernière géolocalisation mémorisée + le journal
 restore();
+initHistory();
 </script>
 </body>
 </html>
