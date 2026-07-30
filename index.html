@@ -47,6 +47,7 @@
   .sub{color:var(--ink-soft);margin:10px 0 0;font-size:15px}
 
   .controls{margin:26px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+  .controls.bottom{margin-top:32px;border-top:1px solid var(--line);padding-top:22px}
   .locate{
     display:inline-flex;align-items:center;gap:12px;
     font:600 17px/1 var(--sans);
@@ -195,8 +196,27 @@
       <span class="dot"></span>
       <span id="btn-label">Me localiser</span>
     </button>
-    <button id="clear" class="clear" type="button" hidden>Effacer</button>
+  </div>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <div id="result"></div>
+
+  <div class="controls">
     <button id="toggle-hist" class="toggle" type="button">Historique</button>
+  </div>
+
+  <section id="history" class="history" hidden>
+    <div class="history-head">
+      <h2>Lieux consultés</h2>
+      <a id="dl" class="dl" download="visites.json">Télécharger visites.json</a>
+    </div>
+    <ol id="history-list" class="history-list"></ol>
+    <p id="history-empty" class="muted" hidden>Aucun lieu enregistré pour l'instant.</p>
+  </section>
+
+  <div class="controls bottom">
+    <button id="clear" class="clear" type="button" hidden>Effacer</button>
     <button id="gh-btn" class="toggle" type="button">Connexion GitHub</button>
   </div>
 
@@ -212,19 +232,6 @@
       <button id="gh-forget" class="linklike" type="button" hidden>Déconnecter</button>
     </p>
   </div>
-
-  <p id="status" class="status" role="status" aria-live="polite"></p>
-
-  <div id="result"></div>
-
-  <section id="history" class="history" hidden>
-    <div class="history-head">
-      <h2>Lieux consultés</h2>
-      <a id="dl" class="dl" download="visites.json">Télécharger visites.json</a>
-    </div>
-    <ol id="history-list" class="history-list"></ol>
-    <p id="history-empty" class="muted" hidden>Aucun lieu enregistré pour l'instant.</p>
-  </section>
 </div>
 
 <script>
