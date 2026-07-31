@@ -13,8 +13,14 @@
     --line:#d6dde3;
     --contour:#1f7a6d;      /* vert de courbe de niveau */
     --contour-dark:#155a50;
-    --signal:#c0492f;       /* rouge signal, usage rare */
+    --signal:#c0492f;       /* rouge signal */
+    --signal-dark:#93331f;
     --brass:#b8912f;
+    --brass-dark:#8a6a1e;
+    --blue:#2f6f9f;
+    --blue-dark:#245880;
+    --slate:#3f4b59;
+    --slate-dark:#2c3641;
     --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono","Menlo","Consolas",monospace;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
@@ -48,6 +54,8 @@
 
   .controls{margin:26px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
   .controls.bottom{margin-top:32px;border-top:1px solid var(--line);padding-top:22px}
+  .controls.hist-row > button{flex:1 1 100%;width:100%}
+  .controls.bottom > button{flex:1 1 0;min-width:0}
   .locate{
     display:inline-flex;align-items:center;gap:12px;
     font:600 17px/1 var(--sans);
@@ -57,23 +65,23 @@
     box-shadow:0 2px 0 var(--contour-dark);
     transition:transform .12s ease, box-shadow .12s ease, background .2s ease;
   }
-  .clear{
-    font:600 15px/1 var(--sans);color:var(--ink-soft);background:transparent;
-    border:1px solid var(--line);border-radius:12px;
-    padding:14px 20px;cursor:pointer;
-    transition:color .15s ease, border-color .15s ease;
+  /* Boutons secondaires colorés */
+  .btn2{
+    font:600 15px/1 var(--sans);color:#fff;border:none;border-radius:12px;
+    padding:15px 20px;cursor:pointer;
+    transition:filter .15s ease, background .2s ease;
   }
-  .clear:hover{color:var(--signal);border-color:var(--signal)}
-  .clear:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
-  .clear[hidden]{display:none}
-  .toggle{
-    font:600 15px/1 var(--sans);color:var(--ink-soft);background:transparent;
-    border:1px solid var(--line);border-radius:12px;
-    padding:14px 20px;cursor:pointer;
-    transition:color .15s ease, border-color .15s ease;
+  .btn2:hover{filter:brightness(0.93)}
+  .btn2:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
+  .btn-blue{background:var(--blue);box-shadow:0 2px 0 var(--blue-dark)}
+  .btn-slate{background:var(--slate);box-shadow:0 2px 0 var(--slate-dark)}
+  .btn-red{background:var(--signal);box-shadow:0 2px 0 var(--signal-dark)}
+  .btn-red:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;filter:none}
+  /* état « en cours » : le bouton devient laiton pendant 2 s */
+  .flashing{
+    background:var(--brass)!important;color:#fff!important;
+    box-shadow:0 2px 0 var(--brass-dark)!important;filter:none!important;
   }
-  .toggle:hover{color:var(--contour-dark);border-color:var(--contour)}
-  .toggle:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
 
   .gh-panel{
     margin:14px 0 0;padding:16px;border:1px solid var(--line);
@@ -179,12 +187,14 @@
   .hist-info{min-width:0}
   .hist-actions{display:flex;gap:8px;flex-shrink:0}
   .hist-btn{
-    font:600 13px/1 var(--sans);background:transparent;color:var(--ink-soft);
-    border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;
-    transition:color .15s ease, border-color .15s ease, background .15s ease;
+    font:600 13px/1 var(--sans);color:#fff;border:none;border-radius:9px;
+    padding:10px 13px;cursor:pointer;
+    transition:filter .15s ease;
   }
-  .hist-btn.show:hover{color:#fff;background:var(--contour);border-color:var(--contour)}
-  .hist-btn.del:hover{color:var(--signal);border-color:var(--signal)}
+  .hist-btn:hover{filter:brightness(0.92)}
+  .hist-btn.show{background:var(--contour)}
+  .hist-btn.del{background:var(--signal)}
+  .hist-btn:disabled{opacity:.55;cursor:not-allowed}
   .hist-btn:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
   .hist-date{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
   .hist-addr{font-size:15px;margin:2px 0 0}
@@ -214,8 +224,8 @@
 
   <div id="result"></div>
 
-  <div class="controls">
-    <button id="toggle-hist" class="toggle" type="button">Historique</button>
+  <div class="controls hist-row">
+    <button id="toggle-hist" class="btn2 btn-blue" type="button">Historique</button>
   </div>
 
   <section id="history" class="history" hidden>
@@ -228,8 +238,8 @@
   </section>
 
   <div class="controls bottom">
-    <button id="clear" class="clear" type="button" hidden>Effacer</button>
-    <button id="gh-btn" class="toggle" type="button">Connexion GitHub</button>
+    <button id="clear" class="btn2 btn-red" type="button">Effacer</button>
+    <button id="gh-btn" class="btn2 btn-slate" type="button">Connexion GitHub</button>
   </div>
 
   <div id="gh-panel" class="gh-panel" hidden>
@@ -272,16 +282,40 @@ const ghPanel     = document.getElementById('gh-panel');
 const ghInput     = document.getElementById('gh-token');
 const ghForget    = document.getElementById('gh-forget');
 
+// Affiche un message sur le bouton pendant 2 s (couleur laiton), puis restaure son libellé
+function flash(button, msg, restore){
+  clearTimeout(button._flashT);
+  button.classList.add('flashing');
+  button.textContent = msg;
+  button._flashT = setTimeout(() => {
+    button.classList.remove('flashing');
+    if(typeof restore === 'function') restore();
+    button._flashT = null;
+  }, 2000);
+}
+
 btn.addEventListener('click', locate);
-clearBtn.addEventListener('click', clearSaved);
+
+clearBtn.addEventListener('click', () => {
+  try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+  result.innerHTML = '';
+  label.textContent = 'Me localiser';
+  setStatus('Mémoire effacée.');
+  flash(clearBtn, 'Effacé ✓', () => { clearBtn.textContent = 'Effacer'; updateClearButton(); });
+});
+
 toggleHist.addEventListener('click', () => {
   histSection.hidden = !histSection.hidden;
-  toggleHist.textContent = histSection.hidden ? 'Historique' : "Masquer l'historique";
+  const opened = !histSection.hidden;
+  flash(toggleHist, opened ? 'Historique affiché ✓' : 'Historique masqué ✓',
+        () => { toggleHist.textContent = histSection.hidden ? 'Historique' : "Masquer l'historique"; });
 });
 
 ghBtn.addEventListener('click', () => {
   ghPanel.hidden = !ghPanel.hidden;
-  if(!ghPanel.hidden){ ghInput.value = ''; ghInput.focus(); }
+  const opened = !ghPanel.hidden;
+  if(opened){ ghInput.value = ''; ghInput.focus(); }
+  flash(ghBtn, opened ? 'Panneau ouvert' : 'Panneau fermé', () => updateGhUI());
 });
 document.getElementById('gh-save').addEventListener('click', async () => {
   const t = ghInput.value.trim();
@@ -289,6 +323,7 @@ document.getElementById('gh-save').addEventListener('click', async () => {
   setToken(t);
   ghInput.value = '';
   ghPanel.hidden = true;
+  flash(ghBtn, 'Connecté ✓', () => updateGhUI());
   setStatus('Token enregistré. Synchronisation…');
   await syncToGitHub(loadLocalHistory());
 });
@@ -423,7 +458,7 @@ function clearSaved(){
 function updateClearButton(){
   let has = false;
   try{ has = !!localStorage.getItem(STORE_KEY); }catch(e){}
-  clearBtn.hidden = !has;
+  clearBtn.disabled = !has;
 }
 
 // --- Journal des lieux consultés ---
@@ -477,6 +512,7 @@ function renderHistory(list){
       showBtn.className = 'hist-btn show';
       showBtn.textContent = 'Revoir';
       showBtn.addEventListener('click', () => {
+        flash(showBtn, 'Chargement…', () => { showBtn.textContent = 'Revoir'; });
         window.scrollTo({ top: 0, behavior: 'smooth' });
         showPlace(+e.lat, +e.lon, { log: false });
       });
@@ -485,7 +521,15 @@ function renderHistory(list){
       delBtn.type = 'button';
       delBtn.className = 'hist-btn del';
       delBtn.textContent = 'Supprimer';
-      delBtn.addEventListener('click', () => removeHistoryEntry(entryKey(e)));
+      delBtn.addEventListener('click', () => {
+        showBtn.disabled = true;
+        delBtn.disabled = true;
+        delBtn.classList.add('flashing');
+        delBtn.textContent = 'Suppression…';
+        setStatus('Suppression du lieu…');
+        // on laisse le message visible 2 s avant de retirer la ligne
+        setTimeout(() => removeHistoryEntry(entryKey(e)), 2000);
+      });
 
       actions.appendChild(showBtn);
       actions.appendChild(delBtn);
@@ -500,6 +544,7 @@ async function removeHistoryEntry(key){
   const list = loadLocalHistory().filter(e => entryKey(e) !== key);
   saveLocalHistory(list);
   renderHistory(list);
+  setStatus('Lieu supprimé de l\'historique.');
   if(getToken()) await syncToGitHub(list);   // propage la suppression sur GitHub
 }
 function updateDownload(list){
