@@ -151,6 +151,25 @@
     margin:0 0 4px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
     color:var(--contour-dark);font-family:var(--mono);font-weight:600;
   }
+  .card summary{
+    cursor:pointer;list-style:none;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .card summary::-webkit-details-marker{display:none}
+  .card summary h2{margin:0}
+  .card summary::after{
+    content:'▸';font-size:13px;color:var(--ink-soft);
+    transition:transform .15s ease;flex-shrink:0;
+  }
+  .card[open] summary::after{transform:rotate(90deg)}
+  .card[open] summary{margin-bottom:12px}
+  .coord-row{
+    display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+    padding:7px 0;border-bottom:1px solid var(--line);
+  }
+  .coord-row:last-child{border-bottom:none;padding-bottom:0}
+  .coord-label{color:var(--ink-soft);font-size:13px}
+  .coord-value{font-family:var(--mono);font-size:14px;text-align:right}
   .coords{font-family:var(--mono);font-size:18px;letter-spacing:.01em}
   .coords small{color:var(--ink-soft);font-size:12px}
   .place-name{font-size:20px;font-weight:700;margin:2px 0 4px;letter-spacing:-.01em}
@@ -225,7 +244,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v1.5</span>
+      <span class="version" id="app-version">v1.6</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -281,7 +300,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -395,15 +414,15 @@ function onError(err){
 }
 
 async function onPosition(pos){
-  const { latitude, longitude, accuracy } = pos.coords;
-  await showPlace(latitude, longitude, { accuracy, log: true });
+  const { latitude, longitude, accuracy, altitude, altitudeAccuracy, heading, speed } = pos.coords;
+  await showPlace(latitude, longitude, { accuracy, altitude, altitudeAccuracy, heading, speed, log: true });
 }
 
 // Affiche toutes les infos d'un lieu (GPS ou historique).
 // log=true => enregistre une nouvelle entrée d'historique ; log=false => simple réaffichage.
 async function showPlace(lat, lon, opts){
-  const accuracy = (opts && 'accuracy' in opts) ? opts.accuracy : null;
-  const log = !!(opts && opts.log);
+  const o = opts || {};
+  const log = !!o.log;
 
   result.innerHTML = '';                 // l'affichage courant est remplacé
   label.textContent = 'Recherche du lieu…';
@@ -421,7 +440,10 @@ async function showPlace(lat, lon, opts){
   const adresse = (addrRes.status === 'fulfilled' && addrRes.value) ? addrRes.value : '';
 
   // Les coordonnées s'affichent en dernier, en bas de l'affichage
-  renderCoords(lat, lon, accuracy);
+  renderCoords(lat, lon, {
+    accuracy: o.accuracy, altitude: o.altitude, altitudeAccuracy: o.altitudeAccuracy,
+    heading: o.heading, speed: o.speed, at: new Date()
+  });
 
   save();
 
@@ -664,13 +686,71 @@ function esc(s){
   ));
 }
 
-function renderCoords(lat, lon, acc){
-  const prec = (acc != null && isFinite(acc))
-    ? ` <small>— précision ± ${Math.round(acc)} m</small>` : '';
-  card(`
-    <h2>Coordonnées</h2>
-    <div class="coords">${(+lat).toFixed(6)}, ${(+lon).toFixed(6)}${prec}</div>
-  `);
+function renderCoords(lat, lon, info){
+  const o = info || {};
+  const rows = [];
+
+  rows.push(coordRow('Décimal', `${(+lat).toFixed(6)}, ${(+lon).toFixed(6)}`));
+  rows.push(coordRow('DMS', `${toDMS(lat, true)}  ${toDMS(lon, false)}`));
+
+  if(o.accuracy != null && isFinite(o.accuracy)){
+    rows.push(coordRow('Précision horizontale', `± ${Math.round(o.accuracy)} m`));
+  }
+  if(o.altitude != null && isFinite(o.altitude)){
+    const altAcc = (o.altitudeAccuracy != null && isFinite(o.altitudeAccuracy))
+      ? ` (± ${Math.round(o.altitudeAccuracy)} m)` : '';
+    rows.push(coordRow('Altitude', `${Math.round(o.altitude)} m${altAcc}`));
+  }
+  if(o.heading != null && isFinite(o.heading)){
+    rows.push(coordRow('Cap', `${Math.round(o.heading)}°`));
+  }
+  if(o.speed != null && isFinite(o.speed)){
+    rows.push(coordRow('Vitesse', `${(o.speed * 3.6).toFixed(1)} km/h`));
+  }
+  rows.push(coordRow('Geohash', geohash(lat, lon, 9)));
+  if(o.at){
+    rows.push(coordRow('Relevé le', o.at.toLocaleString('fr-FR')));
+  }
+
+  const el = document.createElement('details');
+  el.className = 'card';
+  el.innerHTML = `<summary><h2>Coordonnées</h2></summary>${rows.join('')}`;
+  result.appendChild(el);
+  return el;
+}
+
+function coordRow(label, value){
+  return `<div class="coord-row"><span class="coord-label">${esc(label)}</span><span class="coord-value">${esc(value)}</span></div>`;
+}
+
+// Conversion degrés décimaux -> degrés/minutes/secondes
+function toDMS(deg, isLat){
+  const abs = Math.abs(deg);
+  const d = Math.floor(abs);
+  const minFloat = (abs - d) * 60;
+  const m = Math.floor(minFloat);
+  const s = ((minFloat - m) * 60).toFixed(1);
+  const dir = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'O');
+  return `${d}°${m}'${s}"${dir}`;
+}
+
+// Encodage geohash standard (précision réglable, 9 caractères par défaut)
+function geohash(lat, lon, precision){
+  const base32 = '0123456789bcdefghjkmnpqrstuvwxyz';
+  let isEven = true, bit = 0, ch = 0, hash = '';
+  let latMin = -90, latMax = 90, lonMin = -180, lonMax = 180;
+  while(hash.length < (precision || 9)){
+    if(isEven){
+      const mid = (lonMin + lonMax) / 2;
+      if(lon >= mid){ ch = (ch << 1) + 1; lonMin = mid; } else { ch = ch << 1; lonMax = mid; }
+    }else{
+      const mid = (latMin + latMax) / 2;
+      if(lat >= mid){ ch = (ch << 1) + 1; latMin = mid; } else { ch = ch << 1; latMax = mid; }
+    }
+    isEven = !isEven;
+    if(++bit === 5){ hash += base32[ch]; bit = 0; ch = 0; }
+  }
+  return hash;
 }
 
 function renderMap(lat, lon){
