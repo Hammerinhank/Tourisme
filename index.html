@@ -41,10 +41,20 @@
   .wrap{width:100%;max-width:640px}
 
   header{margin-bottom:28px}
+  .eyebrow-row{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:12px;flex-wrap:wrap;margin:0 0 8px;
+  }
   .eyebrow{
     font-family:var(--mono);
     font-size:12px;letter-spacing:.22em;text-transform:uppercase;
-    color:var(--contour-dark);margin:0 0 8px;
+    color:var(--contour-dark);margin:0;
+  }
+  .version{
+    font-family:var(--mono);font-size:12px;font-weight:700;
+    color:#fff;background:var(--brass);
+    border-radius:999px;padding:4px 11px;letter-spacing:.02em;
+    white-space:nowrap;box-shadow:0 1px 0 var(--brass-dark);
   }
   h1{
     font-size:clamp(30px,7vw,44px);
@@ -208,7 +218,10 @@
 <body>
 <div class="wrap">
   <header>
-    <p class="eyebrow">Relevé de position</p>
+    <div class="eyebrow-row">
+      <p class="eyebrow">Relevé de position</p>
+      <span class="version" id="app-version">v1.1</span>
+    </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
   </header>
@@ -262,6 +275,9 @@ const clearBtn = document.getElementById('clear');
 const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
+
+const APP_VERSION = 'v1.1';
+document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
 
@@ -731,6 +747,7 @@ async function lookupPhotos(lat, lon){
 // --- Description : Wikipédia (fr), article le plus proche ---
 async function lookupWikipedia(lat, lon){
   const el = card(`<h2>À propos du lieu</h2><p class="muted">Recherche sur Wikipédia…</p>`);
+  const gmapsLink = `https://www.google.com/maps/search/?api=1&query=${lat}%2C${lon}`;
   try{
     const geo = `https://fr.wikipedia.org/w/api.php?action=query&list=geosearch`
               + `&gscoord=${lat}%7C${lon}&gsradius=10000&gslimit=1&format=json&origin=*`;
@@ -738,7 +755,11 @@ async function lookupWikipedia(lat, lon){
     const gd = await gr.json();
     const hit = gd?.query?.geosearch?.[0];
     if(!hit){
-      el.innerHTML = `<h2>À propos du lieu</h2><p class="muted">Aucun article Wikipédia à proximité.</p>`;
+      el.innerHTML = `
+        <h2>À propos du lieu</h2>
+        <p class="muted">Aucun article Wikipédia à proximité.</p>
+        <p class="extract"><a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a></p>
+      `;
       return;
     }
     const title = hit.title;
@@ -750,15 +771,23 @@ async function lookupWikipedia(lat, lon){
     const pages = ed?.query?.pages || {};
     const page = Object.values(pages)[0] || {};
     const summary = (page.extract || '').trim();
-    const link = 'https://fr.wikipedia.org/wiki/' + encodeURIComponent(title);
+    const wikiLink = 'https://fr.wikipedia.org/wiki/' + encodeURIComponent(title);
     el.innerHTML = `
       <h2>À propos du lieu</h2>
       <div class="place-name">${esc(title)}</div>
       <p class="extract">${esc(summary) || 'Pas de résumé disponible.'}</p>
-      <p class="extract"><a href="${link}" target="_blank" rel="noopener">Lire sur Wikipédia →</a></p>
+      <p class="extract">
+        <a href="${wikiLink}" target="_blank" rel="noopener">Lire sur Wikipédia →</a>
+        &nbsp;·&nbsp;
+        <a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
+      </p>
     `;
   }catch(e){
-    el.innerHTML = `<h2>À propos du lieu</h2><p class="muted">Wikipédia indisponible (${esc(e.message)}).</p>`;
+    el.innerHTML = `
+      <h2>À propos du lieu</h2>
+      <p class="muted">Wikipédia indisponible (${esc(e.message)}).</p>
+      <p class="extract"><a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a></p>
+    `;
   }
 }
 
