@@ -220,7 +220,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v1.1</span>
+      <span class="version" id="app-version">v1.2</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -276,7 +276,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v1.1';
+const APP_VERSION = 'v1.2';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -776,11 +776,8 @@ async function lookupWikipedia(lat, lon){
       <h2>À propos du lieu</h2>
       <div class="place-name">${esc(title)}</div>
       <p class="extract">${esc(summary) || 'Pas de résumé disponible.'}</p>
-      <p class="extract">
-        <a href="${wikiLink}" target="_blank" rel="noopener">Lire sur Wikipédia →</a>
-        &nbsp;·&nbsp;
-        <a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
-      </p>
+      <p class="extract"><a href="${wikiLink}" target="_blank" rel="noopener">Lire sur Wikipédia →</a></p>
+      <p class="extract"><a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a></p>
     `;
   }catch(e){
     el.innerHTML = `
