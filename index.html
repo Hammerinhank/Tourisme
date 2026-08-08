@@ -225,7 +225,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v1.4</span>
+      <span class="version" id="app-version">v1.5</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -281,7 +281,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v1.4';
+const APP_VERSION = 'v1.5';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -715,6 +715,25 @@ async function lookupAddress(lat, lon){
 }
 
 // --- Photos : Wikimedia Commons, fichiers géolocalisés à proximité ---
+// Repli : si Commons ne renvoie aucune photo géolocalisée, on récupère
+// l'image principale de l'article Wikipédia le plus proche (pageimages).
+async function lookupWikipediaMainImage(lat, lon){
+  const geo = `https://fr.wikipedia.org/w/api.php?action=query&list=geosearch`
+            + `&gscoord=${lat}%7C${lon}&gsradius=10000&gslimit=1&format=json&origin=*`;
+  const gr = await fetch(geo);
+  const gd = await gr.json();
+  const hit = gd?.query?.geosearch?.[0];
+  if(!hit) return null;
+  const title = hit.title;
+  const imgUrl = `https://fr.wikipedia.org/w/api.php?action=query&prop=pageimages`
+               + `&piprop=original&titles=${encodeURIComponent(title)}&format=json&origin=*`;
+  const ir = await fetch(imgUrl);
+  const id = await ir.json();
+  const page = Object.values(id?.query?.pages || {})[0] || {};
+  if(!page.original?.source) return null;
+  return { url: page.original.source, title };
+}
+
 async function lookupPhotos(lat, lon){
   const el = card(`<h2>Photos</h2><p class="muted">Recherche de photos du lieu…</p>`);
   try{
@@ -730,6 +749,21 @@ async function lookupPhotos(lat, lon){
       .filter(i => /\.(jpe?g|png)$/i.test(i.url))
       .slice(0, 9);
     if(!photos.length){
+      // repli sur l'image principale de l'article Wikipédia, si disponible
+      let fallback = null;
+      try{ fallback = await lookupWikipediaMainImage(lat, lon); }catch(e){}
+      if(fallback){
+        const link = 'https://fr.wikipedia.org/wiki/' + encodeURIComponent(fallback.title);
+        el.innerHTML = `<h2>Photos</h2><div class="gallery">
+          <figure>
+            <a href="${link}" target="_blank" rel="noopener">
+              <img loading="lazy" src="${esc(fallback.url)}" alt="Photo du lieu">
+            </a>
+            <figcaption title="Image de l'article Wikipédia">Image de l'article Wikipédia</figcaption>
+          </figure>
+        </div>`;
+        return;
+      }
       el.innerHTML = `<h2>Photos</h2><p class="muted">Aucune photo géolocalisée à proximité.</p>`;
       return;
     }
