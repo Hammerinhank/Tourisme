@@ -79,6 +79,8 @@
   .btn2{
     font:600 15px/1 var(--sans);color:#fff;border:none;border-radius:12px;
     padding:15px 20px;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    text-decoration:none;box-sizing:border-box;
     transition:filter .15s ease, background .2s ease;
   }
   .btn2:hover{filter:brightness(0.93)}
@@ -87,6 +89,9 @@
   .btn-slate{background:var(--slate);box-shadow:0 2px 0 var(--slate-dark)}
   .btn-red{background:var(--signal);box-shadow:0 2px 0 var(--signal-dark)}
   .btn-red:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;filter:none}
+
+  .link-actions{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .link-actions .btn2{flex:1 1 0;min-width:0}
   /* état « en cours » : le bouton devient laiton pendant 2 s */
   .flashing{
     background:var(--brass)!important;color:#fff!important;
@@ -220,7 +225,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v1.2</span>
+      <span class="version" id="app-version">v1.4</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -276,7 +281,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v1.2';
+const APP_VERSION = 'v1.4';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -758,7 +763,9 @@ async function lookupWikipedia(lat, lon){
       el.innerHTML = `
         <h2>À propos du lieu</h2>
         <p class="muted">Aucun article Wikipédia à proximité.</p>
-        <p class="extract"><a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a></p>
+        <div class="link-actions">
+          <a class="btn2 btn-slate" href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
+        </div>
       `;
       return;
     }
@@ -776,14 +783,18 @@ async function lookupWikipedia(lat, lon){
       <h2>À propos du lieu</h2>
       <div class="place-name">${esc(title)}</div>
       <p class="extract">${esc(summary) || 'Pas de résumé disponible.'}</p>
-      <p class="extract"><a href="${wikiLink}" target="_blank" rel="noopener">Lire sur Wikipédia →</a></p>
-      <p class="extract"><a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a></p>
+      <div class="link-actions">
+        <a class="btn2 btn-blue" href="${wikiLink}" target="_blank" rel="noopener">Lire sur Wikipédia →</a>
+        <a class="btn2 btn-slate" href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
+      </div>
     `;
   }catch(e){
     el.innerHTML = `
       <h2>À propos du lieu</h2>
       <p class="muted">Wikipédia indisponible (${esc(e.message)}).</p>
-      <p class="extract"><a href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a></p>
+      <div class="link-actions">
+        <a class="btn2 btn-slate" href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
+      </div>
     `;
   }
 }
