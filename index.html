@@ -125,6 +125,26 @@
     cursor:pointer;padding:0;text-decoration:underline;
   }
   .linklike[hidden]{display:none}
+  .log-row{border-top:1px solid var(--line);padding-top:22px}
+
+  .log-view{
+    position:fixed;inset:0;z-index:1000;
+    background:var(--paper);
+    display:flex;flex-direction:column;gap:14px;
+    padding:24px 18px calc(24px + env(safe-area-inset-bottom));
+    box-sizing:border-box;
+  }
+  .log-view[hidden]{display:none}
+  .log-textarea{
+    flex:1;width:100%;min-height:0;resize:none;
+    font-family:var(--mono);font-size:12px;line-height:1.5;
+    padding:14px;border:1px solid var(--line);border-radius:12px;
+    background:var(--card);color:var(--ink);
+    white-space:pre-wrap;word-break:break-word;
+    box-sizing:border-box;
+  }
+  .log-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .log-actions .btn2{flex:1 1 0;min-width:0}
 
   .locate:hover{background:var(--contour-dark)}
   .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
@@ -253,7 +273,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.3</span>
+      <span class="version" id="app-version">v2.4</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -300,18 +320,70 @@
       <button id="gh-forget" class="linklike" type="button" hidden>Déconnecter</button>
     </p>
   </div>
+
+  <div class="controls bottom log-row">
+    <button id="log-btn" class="btn2 btn-slate" type="button">Journal (log)</button>
+  </div>
+</div>
+
+<div id="log-view" class="log-view" hidden>
+  <p class="eyebrow">Journal technique</p>
+  <textarea id="log-textarea" class="log-textarea" readonly spellcheck="false"></textarea>
+  <div class="log-actions">
+    <button id="log-copy" class="btn2 btn-blue" type="button">Copier</button>
+    <button id="log-clear" class="btn2 btn-red" type="button">Vider</button>
+    <button id="log-back" class="btn2 btn-slate" type="button">Retour</button>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
+// --- Journal technique (log de diagnostic) ---
+// Enregistre les étapes clés (carte, appui long, restauration…) et toute
+// erreur JS non capturée, pour comprendre les cas où quelque chose ne
+// fonctionne pas sans qu'on puisse ouvrir la console du navigateur.
+const LOG_KEY = 'ou-suis-je:log';
+const LOG_MAX_ENTRIES = 500;
+
+let appLog = [];
+try{ appLog = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }catch(e){ appLog = []; }
+
+function logMsg(msg, data){
+  const time = new Date().toLocaleTimeString('fr-FR', { hour12: false });
+  let line = `[${time}] ${msg}`;
+  if(data !== undefined){
+    try{ line += ' — ' + JSON.stringify(data); }catch(e){ line += ' — ' + String(data); }
+  }
+  appLog.push(line);
+  if(appLog.length > LOG_MAX_ENTRIES) appLog = appLog.slice(-LOG_MAX_ENTRIES);
+  try{ localStorage.setItem(LOG_KEY, JSON.stringify(appLog)); }catch(e){}
+  const view = document.getElementById('log-view');
+  const ta   = document.getElementById('log-textarea');
+  if(ta && view && !view.hidden){
+    ta.value = appLog.join('\n');
+    ta.scrollTop = ta.scrollHeight;
+  }
+}
+
+// Filet de sécurité : toute erreur JS ou promesse rejetée non gérée ailleurs
+// dans le code finit ici, au lieu de rester silencieuse sur mobile.
+window.addEventListener('error', (e) => {
+  logMsg('ERREUR JS NON CAPTURÉE', { message: e.message, fichier: e.filename, ligne: e.lineno, colonne: e.colno });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
+  logMsg('PROMESSE REJETÉE NON CAPTURÉE', { raison: reason });
+});
+
 const btn      = document.getElementById('btn');
 const clearBtn = document.getElementById('clear');
 const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.3';
+const APP_VERSION = 'v2.4';
 document.getElementById('app-version').textContent = APP_VERSION;
+logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
 const STORE_KEY = 'ou-suis-je:last';
 
@@ -340,6 +412,13 @@ const ghBtn       = document.getElementById('gh-btn');
 const ghPanel     = document.getElementById('gh-panel');
 const ghInput     = document.getElementById('gh-token');
 const ghForget    = document.getElementById('gh-forget');
+
+const logBtn   = document.getElementById('log-btn');
+const logView  = document.getElementById('log-view');
+const logTa    = document.getElementById('log-textarea');
+const logCopy  = document.getElementById('log-copy');
+const logClear = document.getElementById('log-clear');
+const logBack  = document.getElementById('log-back');
 
 // Affiche un message sur le bouton pendant 2 s (couleur laiton), puis restaure son libellé
 function flash(button, msg, restore){
@@ -392,6 +471,38 @@ ghForget.addEventListener('click', () => {
   setStatus('Token GitHub supprimé de ce navigateur.');
 });
 
+logBtn.addEventListener('click', () => {
+  logTa.value = appLog.join('\n');
+  logView.hidden = false;
+  requestAnimationFrame(() => { logTa.scrollTop = logTa.scrollHeight; });
+});
+logBack.addEventListener('click', () => { logView.hidden = true; });
+logClear.addEventListener('click', () => {
+  appLog = [];
+  try{ localStorage.removeItem(LOG_KEY); }catch(e){}
+  logTa.value = '';
+  logMsg('Journal vidé manuellement');
+  flash(logClear, 'Vidé ✓', () => { logClear.textContent = 'Vider'; });
+});
+logCopy.addEventListener('click', async () => {
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(logTa.value);
+    }else{
+      // Repli pour les navigateurs sans Clipboard API : la zone doit être
+      // temporairement modifiable pour que la sélection/copie fonctionne.
+      logTa.removeAttribute('readonly');
+      logTa.select();
+      document.execCommand('copy');
+      logTa.setAttribute('readonly', 'readonly');
+    }
+    flash(logCopy, 'Copié ✓', () => { logCopy.textContent = 'Copier'; });
+  }catch(e){
+    logMsg('Échec de la copie du journal', { erreur: e.message });
+    flash(logCopy, 'Échec ✗', () => { logCopy.textContent = 'Copier'; });
+  }
+});
+
 function setStatus(msg, isError){
   status.textContent = msg;
   status.classList.toggle('error', !!isError);
@@ -442,6 +553,7 @@ async function onPosition(pos){
 async function showPlace(lat, lon, opts){
   const o = opts || {};
   const log = !!o.log;
+  logMsg('showPlace() appelé', { lat, lon, log });
 
   result.innerHTML = '';                 // l'affichage courant est remplacé
   label.textContent = 'Recherche du lieu…';
@@ -478,6 +590,7 @@ async function showPlace(lat, lon, opts){
 
   reset();
   if(!(log && getToken())) setStatus('Terminé.');
+  logMsg('showPlace() terminé');
 }
 
 function reset(){
@@ -507,7 +620,10 @@ function restore(){
   let saved = null;
   try{ saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); }catch(e){}
   if(saved && isFinite(saved.lat) && isFinite(saved.lon)){
+    logMsg('restore() : position mémorisée trouvée, rechargement en direct', { lat: saved.lat, lon: saved.lon });
     showPlace(saved.lat, saved.lon, { log: false });
+  }else{
+    logMsg('restore() : aucune position mémorisée');
   }
   updateClearButton();
 }
@@ -824,6 +940,8 @@ let pressConfirmed        = false; // vrai dès que le retour visuel (1 s) a ét
 let editStartPos          = null;  // position du repère au moment de l'agrandissement
 
 function renderMap(lat, lon){
+  logMsg('renderMap() appelé', { lat, lon });
+
   // Nettoie une éventuelle carte Leaflet précédente (l'ancien conteneur DOM
   // vient d'être supprimé par result.innerHTML = '' dans showPlace()).
   if(leafletMap){
@@ -840,12 +958,21 @@ function renderMap(lat, lon){
   mapDiv.id = 'leaflet-map';
   el.appendChild(mapDiv);
 
+  if(typeof L === 'undefined'){
+    logMsg('ERREUR : Leaflet (L) n\'est pas chargé, la carte ne peut pas être créée');
+    mapDiv.innerHTML = '<p class="muted" style="padding:16px">Carte indisponible (bibliothèque non chargée).</p>';
+    return;
+  }
+
   // Le double-clic garde son comportement natif (zoom avant).
   leafletMap = L.map(mapDiv).setView([lat, lon], 16);
+  logMsg('Carte Leaflet initialisée');
+
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
   }).addTo(leafletMap);
+  leafletMap.on('tileerror', (e) => logMsg('Erreur de chargement de tuile', { erreur: String(e.error) }));
 
   leafletMarker = L.marker([lat, lon], { draggable: false }).addTo(leafletMap);
   // Un vrai glissé du repère ne doit pas être interprété comme un appui long annulé bêtement :
@@ -859,6 +986,7 @@ function renderMap(lat, lon){
   });
 
   attachLongPress(mapDiv);
+  logMsg('Écouteurs d\'appui long attachés');
 }
 
 function attachLongPress(mapDiv){
@@ -874,10 +1002,15 @@ function attachLongPress(mapDiv){
 }
 
 function onPressStart(e){
+  logMsg('pointerdown', { pointerType: e.pointerType, pointerId: e.pointerId, button: e.button, x: Math.round(e.clientX), y: Math.round(e.clientY) });
+
   // Ignore uniquement les clics souris autres que le bouton principal
   // (au doigt/stylet, la valeur de e.button n'est pas toujours fiable
   // selon les navigateurs, donc on ne filtre que pour pointerType 'mouse').
-  if(e.pointerType === 'mouse' && e.button !== 0) return;
+  if(e.pointerType === 'mouse' && e.button !== 0){
+    logMsg('onPressStart ignoré (bouton souris secondaire)');
+    return;
+  }
 
   resetLongPress(); // efface un éventuel cadre rouge résiduel d'un appui précédent
 
@@ -885,19 +1018,21 @@ function onPressStart(e){
   pressPointerId = e.pointerId;
   const mapDiv = document.getElementById('leaflet-map');
   if(mapDiv){
-    try{ mapDiv.setPointerCapture(e.pointerId); }catch(err){}
+    try{ mapDiv.setPointerCapture(e.pointerId); }catch(err){ logMsg('setPointerCapture a échoué', { erreur: err.message }); }
   }
 
   // Retour visuel dès ~1 seconde : confirme que l'appui est bien détecté,
   // avant même de savoir s'il ira jusqu'au bout des 3 secondes.
   pressConfirmTimer = setTimeout(() => {
     pressConfirmed = true;
+    logMsg('Appui confirmé (1 s écoulée)');
     if(mapDiv) mapDiv.classList.add('pressing');
     setStatus("Appui détecté… continue à maintenir (encore 2 secondes).");
   }, PRESS_CONFIRM_MS);
 
   pressTimer = setTimeout(() => {
     pressTimer = null;
+    logMsg('Appui long complet (3 s écoulées) → agrandissement de la carte');
     if(mapDiv) mapDiv.classList.remove('pressing');
     toggleMapEnlarged();
   }, LONG_PRESS_MS);
@@ -906,15 +1041,26 @@ function onPressStart(e){
 function onPressMove(e){
   if(!pressStartPos) return;
   const dx = e.clientX - pressStartPos.x, dy = e.clientY - pressStartPos.y;
-  if(Math.hypot(dx, dy) > PRESS_MOVE_TOLERANCE) cancelLongPress();
+  const dist = Math.hypot(dx, dy);
+  if(dist > PRESS_MOVE_TOLERANCE){
+    logMsg('Appui annulé : déplacement trop important', { distancePx: Math.round(dist) });
+    cancelLongPress('deplacement');
+  }
 }
 
-// Appelée à chaque relâchement, sortie de zone ou annulation du pointeur.
+// Appelée à chaque relâchement, sortie de zone ou annulation du pointeur
+// (reasonOrEvent est soit l'évènement natif — on lit alors son .type —
+// soit une chaîne explicite passée par notre propre code).
 // Ne signale une interruption que si le retour visuel à 1 s avait déjà
 // été affiché : avant cela, il peut simplement s'agir d'un tapotement ou
 // d'un déplacement normal de la carte, pas d'une tentative d'appui long.
-function cancelLongPress(){
+function cancelLongPress(reasonOrEvent){
+  let reason = 'inconnue';
+  if(typeof reasonOrEvent === 'string') reason = reasonOrEvent;
+  else if(reasonOrEvent && reasonOrEvent.type) reason = reasonOrEvent.type;
+
   const wasGenuineAttempt = pressConfirmed && pressTimer !== null;
+  logMsg('cancelLongPress()', { raison: reason, appuiConfirmé: pressConfirmed, minuteurEnCours: pressTimer !== null });
 
   clearTimeout(pressConfirmTimer);
   clearTimeout(pressTimer);
@@ -954,6 +1100,7 @@ function resetLongPress(){
 // Cadre rouge + message explicite : l'appui long a été interrompu avant
 // la fin des 3 secondes (doigt levé trop tôt ou déplacé).
 function showPressCancelled(){
+  logMsg('Affichage du cadre rouge (appui interrompu après confirmation)');
   const mapDiv = document.getElementById('leaflet-map');
   if(mapDiv){
     mapDiv.classList.remove('pressing');
@@ -973,10 +1120,14 @@ function showPressCancelled(){
 // pour le nouveau lieu choisi.
 function toggleMapEnlarged(){
   const mapDiv = document.getElementById('leaflet-map');
-  if(!mapDiv || !leafletMap || !leafletMarker) return;
+  if(!mapDiv || !leafletMap || !leafletMarker){
+    logMsg('toggleMapEnlarged() abandonné : carte ou repère absent', { mapDiv: !!mapDiv, leafletMap: !!leafletMap, leafletMarker: !!leafletMarker });
+    return;
+  }
 
   mapEditMode = !mapEditMode;
   mapDiv.classList.toggle('editing', mapEditMode);
+  logMsg('toggleMapEnlarged()', { entréeEnÉdition: mapEditMode });
 
   const hint = document.querySelector('.map-hint');
 
@@ -990,6 +1141,7 @@ function toggleMapEnlarged(){
     if(hint) hint.textContent = "Appuie 3 secondes sur la carte pour l'agrandir et déplacer le repère.";
     const pos = leafletMarker.getLatLng();
     const moved = editStartPos && distanceMeters(editStartPos.lat, editStartPos.lng, pos.lat, pos.lng) > 5;
+    logMsg('Sortie du mode édition', { repèreDéplacé: !!moved });
     if(moved){
       setStatus('Nouveau lieu choisi, recherche des informations…');
       showPlace(pos.lat, pos.lng, { log: true });
