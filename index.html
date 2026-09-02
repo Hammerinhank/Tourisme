@@ -207,8 +207,6 @@
   }
   .map iframe{width:100%;height:100%;border:0;display:block}
   .map.editing{height:62vh;box-shadow:0 0 0 3px var(--signal) inset}
-  .map.pressing{box-shadow:0 0 0 3px var(--brass) inset}
-  .map.press-cancelled{box-shadow:0 0 0 3px var(--signal) inset}
   .map-hint{margin:0 0 10px}
   .muted{color:var(--ink-soft);font-size:14px}
 
@@ -273,7 +271,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.4</span>
+      <span class="version" id="app-version">v2.5</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -381,7 +379,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.4';
+const APP_VERSION = 'v2.5';
 document.getElementById('app-version').textContent = APP_VERSION;
 logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
@@ -922,22 +920,24 @@ function geohash(lat, lon, precision){
   return hash;
 }
 
-// Délai avant le premier retour visuel confirmant que l'appui est bien détecté.
-const PRESS_CONFIRM_MS = 1000;
+// Durée en dessous de laquelle un appui est considéré comme un simple
+// tapotement (aucun retour visuel affiché avant ce seuil).
+const PRESS_TAP_THRESHOLD_MS = 300;
 // Délai total avant l'agrandissement de la carte.
 const LONG_PRESS_MS = 3000;
+// Durée pendant laquelle le liseré s'épaissit (du seuil « pas un tap » jusqu'à 3 s).
+const PRESS_GROW_MS = LONG_PRESS_MS - PRESS_TAP_THRESHOLD_MS;
+// Épaisseur maximale du liseré rouge, atteinte à la fin des 3 secondes.
+const PRESS_BORDER_MAX_PX = 10;
 // Tolérance de déplacement (px) au-delà de laquelle un appui en cours est annulé.
 const PRESS_MOVE_TOLERANCE = 12;
-// Durée d'affichage du cadre rouge signalant un appui interrompu.
-const PRESS_CANCEL_FLASH_MS = 2200;
 
-let pressConfirmTimer     = null; // minuteur du retour visuel (dès ~1 s)
-let pressTimer            = null; // minuteur des 3 secondes
-let pressCancelFlashTimer = null;
-let pressStartPos         = null;
-let pressPointerId        = null;
-let pressConfirmed        = false; // vrai dès que le retour visuel (1 s) a été affiché
-let editStartPos          = null;  // position du repère au moment de l'agrandissement
+let pressTapTimer  = null; // minuteur du seuil « ce n'est pas un simple tap »
+let pressTimer     = null; // minuteur des 3 secondes
+let pressStartPos  = null;
+let pressPointerId = null;
+let pressGrowing   = false; // vrai dès que le liseré a commencé à s'épaissir
+let editStartPos   = null;  // position du repère au moment de l'agrandissement
 
 function renderMap(lat, lon){
   logMsg('renderMap() appelé', { lat, lon });
@@ -1012,7 +1012,7 @@ function onPressStart(e){
     return;
   }
 
-  resetLongPress(); // efface un éventuel cadre rouge résiduel d'un appui précédent
+  resetLongPress(); // efface un éventuel liseré résiduel d'un appui précédent
 
   pressStartPos = { x: e.clientX, y: e.clientY };
   pressPointerId = e.pointerId;
@@ -1021,19 +1021,18 @@ function onPressStart(e){
     try{ mapDiv.setPointerCapture(e.pointerId); }catch(err){ logMsg('setPointerCapture a échoué', { erreur: err.message }); }
   }
 
-  // Retour visuel dès ~1 seconde : confirme que l'appui est bien détecté,
-  // avant même de savoir s'il ira jusqu'au bout des 3 secondes.
-  pressConfirmTimer = setTimeout(() => {
-    pressConfirmed = true;
-    logMsg('Appui confirmé (1 s écoulée)');
-    if(mapDiv) mapDiv.classList.add('pressing');
-    setStatus("Appui détecté… continue à maintenir (encore 2 secondes).");
-  }, PRESS_CONFIRM_MS);
+  // En dessous de PRESS_TAP_THRESHOLD_MS, rien ne s'affiche : ça peut encore
+  // être un simple tapotement. Une fois ce seuil passé sans relâchement ni
+  // déplacement, le liseré rouge apparaît et commence à s'épaissir.
+  pressTapTimer = setTimeout(() => {
+    pressGrowing = true;
+    logMsg("Appui confirmé (pas un simple tap) : le liseré commence à s'épaissir", { durée: PRESS_GROW_MS });
+    if(mapDiv) startPressBorderGrowth(mapDiv);
+  }, PRESS_TAP_THRESHOLD_MS);
 
   pressTimer = setTimeout(() => {
     pressTimer = null;
     logMsg('Appui long complet (3 s écoulées) → agrandissement de la carte');
-    if(mapDiv) mapDiv.classList.remove('pressing');
     toggleMapEnlarged();
   }, LONG_PRESS_MS);
 }
@@ -1051,67 +1050,62 @@ function onPressMove(e){
 // Appelée à chaque relâchement, sortie de zone ou annulation du pointeur
 // (reasonOrEvent est soit l'évènement natif — on lit alors son .type —
 // soit une chaîne explicite passée par notre propre code).
-// Ne signale une interruption que si le retour visuel à 1 s avait déjà
-// été affiché : avant cela, il peut simplement s'agir d'un tapotement ou
-// d'un déplacement normal de la carte, pas d'une tentative d'appui long.
 function cancelLongPress(reasonOrEvent){
   let reason = 'inconnue';
   if(typeof reasonOrEvent === 'string') reason = reasonOrEvent;
   else if(reasonOrEvent && reasonOrEvent.type) reason = reasonOrEvent.type;
 
-  const wasGenuineAttempt = pressConfirmed && pressTimer !== null;
-  logMsg('cancelLongPress()', { raison: reason, appuiConfirmé: pressConfirmed, minuteurEnCours: pressTimer !== null });
+  logMsg('cancelLongPress()', { raison: reason, liseréEnCours: pressGrowing, minuteurEnCours: pressTimer !== null });
 
-  clearTimeout(pressConfirmTimer);
+  clearTimeout(pressTapTimer);
   clearTimeout(pressTimer);
-  pressConfirmTimer = null;
+  pressTapTimer = null;
   pressTimer = null;
   pressStartPos = null;
 
   const mapDiv = document.getElementById('leaflet-map');
-  if(mapDiv){
-    mapDiv.classList.remove('pressing');
-    if(pressPointerId != null){
-      try{ mapDiv.releasePointerCapture(pressPointerId); }catch(err){}
-    }
+  if(mapDiv && pressPointerId != null){
+    try{ mapDiv.releasePointerCapture(pressPointerId); }catch(err){}
   }
   pressPointerId = null;
-  pressConfirmed = false;
 
-  if(wasGenuineAttempt) showPressCancelled();
+  // Si le liseré avait commencé à s'épaissir, il se rétracte rapidement :
+  // cette rétraction est en elle-même le signal que l'appui a été interrompu.
+  if(pressGrowing) resetPressBorder(mapDiv);
+  pressGrowing = false;
 }
 
-// Sans retour visuel préalable ni message : remet tout à zéro silencieusement
-// (utilisé au (ré)affichage de la carte, pas après un vrai appui interrompu).
+// Remet tout à zéro instantanément et sans animation (utilisé au (ré)affichage
+// de la carte, pas après un vrai appui interrompu).
 function resetLongPress(){
-  clearTimeout(pressConfirmTimer);
+  clearTimeout(pressTapTimer);
   clearTimeout(pressTimer);
-  clearTimeout(pressCancelFlashTimer);
-  pressConfirmTimer = null;
+  pressTapTimer = null;
   pressTimer = null;
-  pressCancelFlashTimer = null;
   pressStartPos = null;
   pressPointerId = null;
-  pressConfirmed = false;
-  const mapDiv = document.getElementById('leaflet-map');
-  if(mapDiv) mapDiv.classList.remove('pressing', 'press-cancelled');
-}
-
-// Cadre rouge + message explicite : l'appui long a été interrompu avant
-// la fin des 3 secondes (doigt levé trop tôt ou déplacé).
-function showPressCancelled(){
-  logMsg('Affichage du cadre rouge (appui interrompu après confirmation)');
+  pressGrowing = false;
   const mapDiv = document.getElementById('leaflet-map');
   if(mapDiv){
-    mapDiv.classList.remove('pressing');
-    mapDiv.classList.add('press-cancelled');
+    mapDiv.style.transition = '';
+    mapDiv.style.boxShadow = '';
   }
-  setStatus("Appui interrompu avant la fin des 3 secondes : maintiens le doigt immobile sur la carte pour l'agrandir.");
-  clearTimeout(pressCancelFlashTimer);
-  pressCancelFlashTimer = setTimeout(() => {
-    if(mapDiv) mapDiv.classList.remove('press-cancelled');
-    pressCancelFlashTimer = null;
-  }, PRESS_CANCEL_FLASH_MS);
+}
+
+// Lance l'épaississement du liseré rouge, synchronisé pour atteindre son
+// épaisseur maximale exactement au moment des 3 secondes.
+function startPressBorderGrowth(mapDiv){
+  if(!mapDiv) return;
+  mapDiv.style.transition = `height .3s ease, box-shadow ${PRESS_GROW_MS}ms linear`;
+  void mapDiv.offsetWidth; // force le navigateur à partir bien de l'épaisseur actuelle (0)
+  mapDiv.style.boxShadow = `inset 0 0 0 ${PRESS_BORDER_MAX_PX}px var(--signal)`;
+}
+
+// Rétracte rapidement le liseré rouge (appui interrompu avant la fin).
+function resetPressBorder(mapDiv){
+  if(!mapDiv) return;
+  mapDiv.style.transition = 'height .3s ease, box-shadow .25s ease-out';
+  mapDiv.style.boxShadow = 'inset 0 0 0 0px var(--signal)';
 }
 
 // Premier appui long (3 s) : agrandit la carte et rend le repère déplaçable.
@@ -1124,6 +1118,11 @@ function toggleMapEnlarged(){
     logMsg('toggleMapEnlarged() abandonné : carte ou repère absent', { mapDiv: !!mapDiv, leafletMap: !!leafletMap, leafletMarker: !!leafletMarker });
     return;
   }
+
+  pressGrowing = false;
+  // Rend la main aux classes CSS (.editing gère désormais le liseré, fixe).
+  mapDiv.style.transition = '';
+  mapDiv.style.boxShadow = '';
 
   mapEditMode = !mapEditMode;
   mapDiv.classList.toggle('editing', mapEditMode);
