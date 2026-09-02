@@ -244,7 +244,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v1.6</span>
+      <span class="version" id="app-version">v1.7</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -300,13 +300,17 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v1.6';
+const APP_VERSION = 'v1.7';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
 
 const HISTORY_URL = 'https://hammerinhank.github.io/Tourisme/visites.json';
 const HISTORY_KEY = 'ou-suis-je:historique';
+
+// Distance en dessous de laquelle deux relevés consécutifs sont considérés
+// comme le même endroit (et donc fusionnés dans l'historique).
+const SAME_PLACE_RADIUS_M = 120;
 
 // --- Configuration GitHub (écriture du fichier via l'API) ---
 const GH_OWNER  = 'hammerinhank';
@@ -514,6 +518,37 @@ function saveLocalHistory(list){
 function entryKey(e){
   return `${e.date}|${(+e.lat).toFixed(6)}|${(+e.lon).toFixed(6)}`;
 }
+
+// Distance à vol d'oiseau (formule de haversine), en mètres.
+function distanceMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Élimine, dans une liste déjà triée du plus récent au plus ancien, les
+// enregistrements consécutifs qui se trouvent au même endroit (à moins de
+// SAME_PLACE_RADIUS_M mètres du précédent conservé). Seul le plus récent de
+// chaque série est gardé ; dès que le lieu change, la série suivante peut
+// à nouveau être conservée même si elle correspond à un endroit déjà visité
+// plus tôt dans l'historique.
+function dedupeConsecutiveSamePlace(list){
+  const out = [];
+  for(const e of list){
+    const prev = out[out.length - 1];
+    if(prev && distanceMeters(+prev.lat, +prev.lon, +e.lat, +e.lon) < SAME_PLACE_RADIUS_M){
+      continue; // même endroit que l'enregistrement conservé juste avant : on saute celui-ci
+    }
+    out.push(e);
+  }
+  return out;
+}
+
 function mergeHistory(a, b){
   const seen = new Set(a.map(entryKey));
   const out = a.slice();
@@ -521,7 +556,7 @@ function mergeHistory(a, b){
     if(e && e.date != null && !seen.has(entryKey(e))){ seen.add(entryKey(e)); out.push(e); }
   }
   out.sort((x, y) => new Date(y.date) - new Date(x.date));
-  return out;
+  return dedupeConsecutiveSamePlace(out);
 }
 async function addHistoryEntry(entry){
   const list = mergeHistory(loadLocalHistory(), [entry]);
