@@ -253,7 +253,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.2</span>
+      <span class="version" id="app-version">v2.3</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -310,7 +310,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.2';
+const APP_VERSION = 'v2.3';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -464,7 +464,7 @@ async function showPlace(lat, lon, opts){
     heading: o.heading, speed: o.speed, at: new Date()
   });
 
-  save();
+  save(lat, lon);
 
   // Journal : une ligne par consultation (uniquement pour une vraie géolocalisation)
   if(log){
@@ -487,24 +487,27 @@ function reset(){
 }
 
 // --- Mémoire locale (localStorage) : conserve la dernière géolocalisation ---
-function save(){
+function save(lat, lon){
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
       at: Date.now(),
-      html: result.innerHTML
+      lat: +lat,
+      lon: +lon
     }));
   }catch(e){ /* stockage indisponible : on continue sans mémoriser */ }
   updateClearButton();
 }
 
+// Recharge en direct la dernière position mémorisée (carte Leaflet vivante,
+// adresse, photos, article, coordonnées) — comme un « Revoir » d'historique.
+// Réinjecter un ancien instantané HTML ne fonctionne pas : une carte Leaflet
+// a besoin d'être réinitialisée par JavaScript pour être interactive (c'était
+// la cause du bug où l'appui long restait sans effet au premier chargement).
 function restore(){
   let saved = null;
   try{ saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); }catch(e){}
-  if(saved && saved.html){
-    result.innerHTML = saved.html;
-    label.textContent = 'Me localiser à nouveau';
-    const when = new Date(saved.at).toLocaleString('fr-FR');
-    setStatus('Dernière position mémorisée le ' + when + '.');
+  if(saved && isFinite(saved.lat) && isFinite(saved.lon)){
+    showPlace(saved.lat, saved.lon, { log: false });
   }
   updateClearButton();
 }
