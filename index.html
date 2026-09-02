@@ -188,6 +188,12 @@
   .map iframe{width:100%;height:100%;border:0;display:block}
   .map.editing{height:62vh;box-shadow:0 0 0 3px var(--signal) inset}
   .map.pressing{box-shadow:0 0 0 3px var(--brass) inset}
+  .press-progress{
+    height:6px;border-radius:999px;background:var(--line);
+    margin-top:10px;overflow:hidden;opacity:0;transition:opacity .15s ease;
+  }
+  .press-progress.active{opacity:1}
+  .press-progress-fill{height:100%;width:0%;background:var(--brass)}
   .map-hint{margin:0 0 10px}
   .muted{color:var(--ink-soft);font-size:14px}
 
@@ -252,7 +258,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.0</span>
+      <span class="version" id="app-version">v2.1</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -309,7 +315,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.0';
+const APP_VERSION = 'v2.1';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -807,10 +813,9 @@ const LONG_PRESS_MS = 3000;
 // Tolérance de déplacement (px) au-delà de laquelle un appui en cours est annulé.
 const PRESS_MOVE_TOLERANCE = 12;
 
-let pressTimer     = null;
-let pressStartPos  = null;
-let pressPointerId = null;
-let editStartPos   = null; // position du repère au moment de l'agrandissement
+let pressTimer    = null;
+let pressStartPos = null;
+let editStartPos  = null; // position du repère au moment de l'agrandissement
 
 function renderMap(lat, lon){
   // Nettoie une éventuelle carte Leaflet précédente (l'ancien conteneur DOM
@@ -828,6 +833,14 @@ function renderMap(lat, lon){
   mapDiv.className = 'map';
   mapDiv.id = 'leaflet-map';
   el.appendChild(mapDiv);
+
+  // Barre de progression visible pendant l'appui, pour confirmer sans
+  // ambiguïté qu'il est bien détecté (se remplit en 3 secondes).
+  const progress = document.createElement('div');
+  progress.className = 'press-progress';
+  progress.id = 'press-progress';
+  progress.innerHTML = '<div class="press-progress-fill" id="press-progress-fill"></div>';
+  el.appendChild(progress);
 
   // Le double-clic garde son comportement natif (zoom avant).
   leafletMap = L.map(mapDiv).setView([lat, lon], 16);
@@ -850,46 +863,54 @@ function renderMap(lat, lon){
   attachLongPress(mapDiv);
 }
 
+// Détection de l'appui long avec les évènements tactile/souris "classiques"
+// (plus largement pris en charge que la Pointer Events API dans certains
+// navigateurs/webviews embarqués).
 function attachLongPress(mapDiv){
-  mapDiv.addEventListener('pointerdown', onPressStart);
-  mapDiv.addEventListener('pointerup', cancelLongPress);
-  mapDiv.addEventListener('pointerleave', cancelLongPress);
-  mapDiv.addEventListener('pointercancel', cancelLongPress);
-  mapDiv.addEventListener('pointermove', onPressMove);
+  mapDiv.addEventListener('touchstart', onPressStart, { passive: true });
+  mapDiv.addEventListener('touchmove',  onPressMove,  { passive: true });
+  mapDiv.addEventListener('touchend',    cancelLongPress);
+  mapDiv.addEventListener('touchcancel', cancelLongPress);
+
+  mapDiv.addEventListener('mousedown', onPressStart);
+  mapDiv.addEventListener('mousemove', onPressMove);
+  mapDiv.addEventListener('mouseup',    cancelLongPress);
+  mapDiv.addEventListener('mouseleave', cancelLongPress);
+
   // Sur iOS/Android, un appui prolongé sur une tuile de carte (une image)
   // déclenche normalement le menu contextuel natif ("Enregistrer l'image"…),
-  // ce qui interrompt notre détection avant les 3 secondes. On le désactive.
+  // ce qui interrompt le geste avant les 3 secondes. On le désactive.
   mapDiv.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-function onPressStart(e){
-  // Ignore uniquement les clics souris autres que le bouton principal
-  // (au doigt/stylet, la valeur de e.button n'est pas toujours fiable
-  // selon les navigateurs, donc on ne filtre que pour pointerType 'mouse').
-  if(e.pointerType === 'mouse' && e.button !== 0) return;
+function eventPoint(e){
+  if(e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  if(e.changedTouches && e.changedTouches.length) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+  return { x: e.clientX, y: e.clientY };
+}
 
-  pressStartPos = { x: e.clientX, y: e.clientY };
-  pressPointerId = e.pointerId;
+function onPressStart(e){
+  if(e.type === 'mousedown' && e.button !== 0) return; // clic gauche uniquement
+
+  pressStartPos = eventPoint(e);
   const mapDiv = document.getElementById('leaflet-map');
-  if(mapDiv){
-    mapDiv.classList.add('pressing');
-    // Garantit que les évènements suivants (move/up) restent bien rattachés
-    // à cet élément même si le doigt dérive légèrement.
-    try{ mapDiv.setPointerCapture(e.pointerId); }catch(err){}
-  }
+  if(mapDiv) mapDiv.classList.add('pressing');
   setStatus("Maintiens l'appui sur la carte… (3 secondes)");
+  showPressProgress(true);
 
   clearTimeout(pressTimer);
   pressTimer = setTimeout(() => {
     if(mapDiv) mapDiv.classList.remove('pressing');
     pressTimer = null;
+    showPressProgress(false);
     toggleMapEnlarged();
   }, LONG_PRESS_MS);
 }
 
 function onPressMove(e){
   if(!pressStartPos) return;
-  const dx = e.clientX - pressStartPos.x, dy = e.clientY - pressStartPos.y;
+  const p = eventPoint(e);
+  const dx = p.x - pressStartPos.x, dy = p.y - pressStartPos.y;
   if(Math.hypot(dx, dy) > PRESS_MOVE_TOLERANCE) cancelLongPress();
 }
 
@@ -899,14 +920,27 @@ function cancelLongPress(){
   pressTimer = null;
   pressStartPos = null;
   const mapDiv = document.getElementById('leaflet-map');
-  if(mapDiv){
-    mapDiv.classList.remove('pressing');
-    if(pressPointerId != null){
-      try{ mapDiv.releasePointerCapture(pressPointerId); }catch(err){}
-    }
-  }
-  pressPointerId = null;
+  if(mapDiv) mapDiv.classList.remove('pressing');
+  showPressProgress(false);
   if(wasPressing && !mapEditMode) setStatus('Terminé.');
+}
+
+function showPressProgress(active){
+  const bar  = document.getElementById('press-progress');
+  const fill = document.getElementById('press-progress-fill');
+  if(!bar || !fill) return;
+  if(active){
+    bar.classList.add('active');
+    fill.style.transition = 'none';
+    fill.style.width = '0%';
+    void fill.offsetWidth; // force le navigateur à appliquer le reset avant l'animation
+    fill.style.transition = `width ${LONG_PRESS_MS}ms linear`;
+    fill.style.width = '100%';
+  }else{
+    bar.classList.remove('active');
+    fill.style.transition = 'none';
+    fill.style.width = '0%';
+  }
 }
 
 // Premier appui long (3 s) : agrandit la carte et rend le repère déplaçable.
