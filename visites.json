@@ -1,5 +1,11 @@
 [
   {
+    "date": "2026-09-02T04:03:01.070Z",
+    "lat": 48.720125,
+    "lon": 2.358072,
+    "adresse": "Rue des Mimosas, 91550 Paray-Vieille-Poste, France"
+  },
+  {
     "date": "2026-08-23T10:40:34.190Z",
     "lat": 44.13777,
     "lon": 5.957228,
@@ -18,51 +24,9 @@
     "adresse": "Chemin des Bastets, 26450 Roynac, France"
   },
   {
-    "date": "2026-08-08T19:41:34.103Z",
-    "lat": 44.648353,
-    "lon": 4.931566,
-    "adresse": "Chemin des Bastets, 26450 Roynac, France"
-  },
-  {
     "date": "2026-08-08T10:02:51.650Z",
     "lat": 46.525496,
     "lon": 3.57588,
-    "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
-  },
-  {
-    "date": "2026-08-08T09:48:06.490Z",
-    "lat": 46.525496,
-    "lon": 3.57588,
-    "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
-  },
-  {
-    "date": "2026-08-08T09:37:47.765Z",
-    "lat": 46.525492,
-    "lon": 3.575889,
-    "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
-  },
-  {
-    "date": "2026-08-08T09:30:58.500Z",
-    "lat": 46.52549,
-    "lon": 3.575895,
-    "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
-  },
-  {
-    "date": "2026-08-08T09:23:19.721Z",
-    "lat": 46.525491,
-    "lon": 3.575867,
-    "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
-  },
-  {
-    "date": "2026-08-08T09:19:36.192Z",
-    "lat": 46.525496,
-    "lon": 3.575878,
-    "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
-  },
-  {
-    "date": "2026-08-08T09:00:49.203Z",
-    "lat": 46.525515,
-    "lon": 3.575838,
     "adresse": "Route de Moulins, 03230 Thiel-sur-Acolin, France"
   },
   {
@@ -82,11 +46,5 @@
     "lat": 48.836773,
     "lon": 2.298208,
     "adresse": "Rue de la Convention, 75015 Paris, France"
-  },
-  {
-    "date": "2026-07-31T17:24:06.921Z",
-    "lat": 48.836841,
-    "lon": 2.298261,
-    "adresse": "Rue Olivier de Serres, 75015 Paris, France"
   }
 ]
