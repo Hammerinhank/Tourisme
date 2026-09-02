@@ -198,15 +198,24 @@
   .extract{margin:6px 0 0;font-size:15px}
   .extract a{color:var(--contour-dark)}
   .map{
+    position:relative;
     border:1px solid var(--line);border-radius:14px;overflow:hidden;
     aspect-ratio:16/10;background:#dfe6ea;
-    transition:height .3s ease, box-shadow .2s ease;
+    transition:height .3s ease;
     -webkit-touch-callout:none;
     -webkit-user-select:none;
     user-select:none;
   }
   .map iframe{width:100%;height:100%;border:0;display:block}
-  .map.editing{height:62vh;box-shadow:0 0 0 3px var(--signal) inset}
+  .map.editing{height:62vh}
+  /* Calque dédié au liseré : un box-shadow posé sur .map lui-même serait peint
+     SOUS les tuiles Leaflet (enfants positionnés avec leur propre z-index) et
+     resterait invisible. Ce calque, non interactif, est peint au-dessus. */
+  .press-border-overlay{
+    position:absolute;inset:0;border-radius:inherit;
+    pointer-events:none;z-index:1000;
+    box-shadow:inset 0 0 0 0px var(--signal);
+  }
   .map-hint{margin:0 0 10px}
   .muted{color:var(--ink-soft);font-size:14px}
 
@@ -271,7 +280,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.5</span>
+      <span class="version" id="app-version">v2.6</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -379,7 +388,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.5';
+const APP_VERSION = 'v2.6';
 document.getElementById('app-version').textContent = APP_VERSION;
 logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
@@ -979,6 +988,13 @@ function renderMap(lat, lon){
   // il annule simplement les minuteurs en cours (le mode édition est déjà actif à ce stade).
   leafletMarker.on('dragstart', cancelLongPress);
 
+  // Calque non interactif posé au-dessus des tuiles Leaflet, dédié au liseré
+  // rouge (voir le commentaire CSS de .press-border-overlay).
+  const pressOverlay = document.createElement('div');
+  pressOverlay.className = 'press-border-overlay';
+  pressOverlay.id = 'press-border-overlay';
+  mapDiv.appendChild(pressOverlay);
+
   // Recalcule la taille de la carte Leaflet une fois la transition CSS terminée
   // (agrandissement/rétrécissement du conteneur).
   mapDiv.addEventListener('transitionend', (e) => {
@@ -1085,27 +1101,32 @@ function resetLongPress(){
   pressStartPos = null;
   pressPointerId = null;
   pressGrowing = false;
-  const mapDiv = document.getElementById('leaflet-map');
-  if(mapDiv){
-    mapDiv.style.transition = '';
-    mapDiv.style.boxShadow = '';
+  const overlay = document.getElementById('press-border-overlay');
+  if(overlay){
+    overlay.style.transition = '';
+    overlay.style.boxShadow = '';
   }
 }
 
 // Lance l'épaississement du liseré rouge, synchronisé pour atteindre son
-// épaisseur maximale exactement au moment des 3 secondes.
+// épaisseur maximale exactement au moment des 3 secondes. Le liseré est posé
+// sur le calque .press-border-overlay (au-dessus des tuiles Leaflet) et non
+// sur la carte elle-même, sans quoi il serait peint sous les tuiles et resterait
+// invisible.
 function startPressBorderGrowth(mapDiv){
-  if(!mapDiv) return;
-  mapDiv.style.transition = `height .3s ease, box-shadow ${PRESS_GROW_MS}ms linear`;
-  void mapDiv.offsetWidth; // force le navigateur à partir bien de l'épaisseur actuelle (0)
-  mapDiv.style.boxShadow = `inset 0 0 0 ${PRESS_BORDER_MAX_PX}px var(--signal)`;
+  const overlay = mapDiv && mapDiv.querySelector('.press-border-overlay');
+  if(!overlay) return;
+  overlay.style.transition = `box-shadow ${PRESS_GROW_MS}ms linear`;
+  void overlay.offsetWidth; // force le navigateur à partir bien de l'épaisseur actuelle (0)
+  overlay.style.boxShadow = `inset 0 0 0 ${PRESS_BORDER_MAX_PX}px var(--signal)`;
 }
 
 // Rétracte rapidement le liseré rouge (appui interrompu avant la fin).
 function resetPressBorder(mapDiv){
-  if(!mapDiv) return;
-  mapDiv.style.transition = 'height .3s ease, box-shadow .25s ease-out';
-  mapDiv.style.boxShadow = 'inset 0 0 0 0px var(--signal)';
+  const overlay = mapDiv && mapDiv.querySelector('.press-border-overlay');
+  if(!overlay) return;
+  overlay.style.transition = 'box-shadow .25s ease-out';
+  overlay.style.boxShadow = 'inset 0 0 0 0px var(--signal)';
 }
 
 // Premier appui long (3 s) : agrandit la carte et rend le repère déplaçable.
@@ -1114,19 +1135,24 @@ function resetPressBorder(mapDiv){
 // pour le nouveau lieu choisi.
 function toggleMapEnlarged(){
   const mapDiv = document.getElementById('leaflet-map');
+  const overlay = mapDiv && mapDiv.querySelector('.press-border-overlay');
   if(!mapDiv || !leafletMap || !leafletMarker){
     logMsg('toggleMapEnlarged() abandonné : carte ou repère absent', { mapDiv: !!mapDiv, leafletMap: !!leafletMap, leafletMarker: !!leafletMarker });
     return;
   }
 
   pressGrowing = false;
-  // Rend la main aux classes CSS (.editing gère désormais le liseré, fixe).
-  mapDiv.style.transition = '';
-  mapDiv.style.boxShadow = '';
 
   mapEditMode = !mapEditMode;
   mapDiv.classList.toggle('editing', mapEditMode);
   logMsg('toggleMapEnlarged()', { entréeEnÉdition: mapEditMode });
+
+  // Liseré fixe pendant l'édition, porté par le calque (pas par la carte
+  // elle-même — même raison que pour le liseré qui s'épaissit).
+  if(overlay){
+    overlay.style.transition = 'box-shadow .2s ease';
+    overlay.style.boxShadow = mapEditMode ? 'inset 0 0 0 3px var(--signal)' : 'inset 0 0 0 0px var(--signal)';
+  }
 
   const hint = document.querySelector('.map-hint');
 
