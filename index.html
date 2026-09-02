@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Où suis-je ?</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <style>
   :root{
     --ink:#16232f;
@@ -179,8 +180,11 @@
   .map{
     border:1px solid var(--line);border-radius:14px;overflow:hidden;
     aspect-ratio:16/10;background:#dfe6ea;
+    transition:box-shadow .2s ease;
   }
   .map iframe{width:100%;height:100%;border:0;display:block}
+  .map.editing{box-shadow:0 0 0 3px var(--signal) inset}
+  .map-hint{margin:0 0 10px}
   .muted{color:var(--ink-soft);font-size:14px}
 
   .addr{font-size:16px;line-height:1.5;margin:2px 0 0}
@@ -244,7 +248,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v1.7</span>
+      <span class="version" id="app-version">v1.8</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -293,6 +297,7 @@
   </div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
 const btn      = document.getElementById('btn');
 const clearBtn = document.getElementById('clear');
@@ -300,10 +305,15 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v1.7';
+const APP_VERSION = 'v1.8';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const STORE_KEY = 'ou-suis-je:last';
+
+// État de la carte Leaflet (recréée à chaque affichage de lieu)
+let leafletMap    = null;
+let leafletMarker = null;
+let mapEditMode   = false;
 
 const HISTORY_URL = 'https://hammerinhank.github.io/Tourisme/visites.json';
 const HISTORY_KEY = 'ou-suis-je:historique';
@@ -789,14 +799,63 @@ function geohash(lat, lon, precision){
 }
 
 function renderMap(lat, lon){
-  const d = 0.01;
-  const bbox = [lon-d, lat-d, lon+d, lat+d].join(',');
-  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
-  const el = card(`<h2>Carte</h2>`);
-  const map = document.createElement('div');
-  map.className = 'map';
-  map.innerHTML = `<iframe loading="lazy" title="Carte de la position" src="${src}"></iframe>`;
-  el.appendChild(map);
+  // Nettoie une éventuelle carte Leaflet précédente (l'ancien conteneur DOM
+  // vient d'être supprimé par result.innerHTML = '' dans showPlace()).
+  if(leafletMap){
+    try{ leafletMap.remove(); }catch(e){}
+    leafletMap = null;
+    leafletMarker = null;
+  }
+  mapEditMode = false;
+
+  const el = card(`<h2>Carte</h2><p class="muted map-hint">Double-clique sur la carte pour déplacer le repère et modifier le lieu.</p>`);
+  const mapDiv = document.createElement('div');
+  mapDiv.className = 'map';
+  mapDiv.id = 'leaflet-map';
+  el.appendChild(mapDiv);
+
+  leafletMap = L.map(mapDiv, { doubleClickZoom: false }).setView([lat, lon], 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+  }).addTo(leafletMap);
+
+  leafletMarker = L.marker([lat, lon], { draggable: false }).addTo(leafletMap);
+
+  leafletMap.on('dblclick', onMapDoubleClick);
+}
+
+// Premier double-clic : passe en mode édition (le repère devient déplaçable).
+// Second double-clic : valide la nouvelle position du repère et recharge
+// toutes les informations (adresse, photos, article, coordonnées) pour ce
+// nouveau lieu.
+function onMapDoubleClick(){
+  if(!leafletMarker) return;
+
+  if(!mapEditMode){
+    mapEditMode = true;
+    leafletMarker.dragging.enable();
+    setMapEditUi(true);
+    setStatus("Mode édition : fais glisser le repère jusqu'au bon endroit, puis double-clique à nouveau sur la carte pour valider.");
+  }else{
+    mapEditMode = false;
+    leafletMarker.dragging.disable();
+    setMapEditUi(false);
+    const pos = leafletMarker.getLatLng();
+    setStatus('Nouveau lieu choisi, recherche des informations…');
+    showPlace(pos.lat, pos.lng, { log: true });
+  }
+}
+
+function setMapEditUi(active){
+  const mapDiv = document.getElementById('leaflet-map');
+  if(mapDiv) mapDiv.classList.toggle('editing', active);
+  const hint = document.querySelector('.map-hint');
+  if(hint){
+    hint.textContent = active
+      ? "Fais glisser le repère, puis double-clique sur la carte pour valider le nouveau lieu."
+      : 'Double-clique sur la carte pour déplacer le repère et modifier le lieu.';
+  }
 }
 
 // --- Adresse : Nominatim (OpenStreetMap), gratuit et sans clé ---
