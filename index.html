@@ -280,7 +280,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.6</span>
+      <span class="version" id="app-version">v2.7</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -350,14 +350,34 @@
 // erreur JS non capturée, pour comprendre les cas où quelque chose ne
 // fonctionne pas sans qu'on puisse ouvrir la console du navigateur.
 const LOG_KEY = 'ou-suis-je:log';
+const LOG_LAST_USE_KEY = 'ou-suis-je:log-last-use';
+const LOG_PURGE_AFTER_MS = 2 * 24 * 60 * 60 * 1000; // 2 jours
 const LOG_MAX_ENTRIES = 500;
 
 let appLog = [];
 try{ appLog = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }catch(e){ appLog = []; }
 
+// Si au moins 2 jours se sont écoulés depuis la précédente utilisation,
+// purge l'ancien contenu et laisse une trace explicite de la purge — pour
+// qu'un journal vide (ou très court) ne soit jamais pris pour un bug.
+(function purgeOldLogIfNeeded(){
+  const now = Date.now();
+  let lastUseAt = 0;
+  try{ lastUseAt = +localStorage.getItem(LOG_LAST_USE_KEY); }catch(e){ lastUseAt = 0; }
+  if(isFinite(lastUseAt) && lastUseAt > 0 && (now - lastUseAt) >= LOG_PURGE_AFTER_MS){
+    const lastUseDate = new Date(lastUseAt).toLocaleDateString('fr-FR');
+    const todayDate = new Date(now).toLocaleDateString('fr-FR');
+    appLog = [`Le contenu de ce journal jusqu'au ${lastUseDate} a été supprimé le ${todayDate}.`];
+    try{ localStorage.setItem(LOG_KEY, JSON.stringify(appLog)); }catch(e){}
+  }
+  try{ localStorage.setItem(LOG_LAST_USE_KEY, String(now)); }catch(e){}
+})();
+
 function logMsg(msg, data){
-  const time = new Date().toLocaleTimeString('fr-FR', { hour12: false });
-  let line = `[${time}] ${msg}`;
+  const now = new Date();
+  const date = now.toLocaleDateString('fr-FR');
+  const time = now.toLocaleTimeString('fr-FR', { hour12: false });
+  let line = `[${date} ${time}] ${msg}`;
   if(data !== undefined){
     try{ line += ' — ' + JSON.stringify(data); }catch(e){ line += ' — ' + String(data); }
   }
@@ -388,7 +408,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.6';
+const APP_VERSION = 'v2.7';
 document.getElementById('app-version').textContent = APP_VERSION;
 logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
