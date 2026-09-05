@@ -184,6 +184,17 @@
   }
   .card[open] summary::after{transform:rotate(90deg)}
   .card[open] summary{margin-bottom:12px}
+  /* Vue Street View : le cadre n'est chargé qu'à l'ouverture de la section (voir
+     renderStreetView), pour ne pas solliciter Google à chaque relevé de position. */
+  .street-frame{
+    width:100%;height:min(56vh,420px);min-height:220px;
+    border:0;border-radius:12px;background:#000;display:block;
+  }
+  .street-note{color:var(--ink-soft);font-size:13px;margin:10px 0 0}
+  .street-note button{
+    background:none;border:none;padding:0;font:inherit;
+    color:var(--contour-dark);text-decoration:underline;cursor:pointer;
+  }
   .coord-row{
     display:flex;justify-content:space-between;align-items:baseline;gap:12px;
     padding:7px 0;border-bottom:1px solid var(--line);
@@ -280,7 +291,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.7</span>
+      <span class="version" id="app-version">v2.8</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -408,7 +419,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.7';
+const APP_VERSION = 'v2.8';
 document.getElementById('app-version').textContent = APP_VERSION;
 logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
@@ -596,6 +607,9 @@ async function showPlace(lat, lon, opts){
   ]);
   const addrRes = results[0];
   const adresse = (addrRes.status === 'fulfilled' && addrRes.value) ? addrRes.value : '';
+
+  // Vue Street View (repliée par défaut, chargée seulement si on l'ouvre), puis coordonnées
+  renderStreetView(lat, lon);
 
   // Les coordonnées s'affichent en dernier, en bas de l'affichage
   renderCoords(lat, lon, {
@@ -880,6 +894,59 @@ function esc(s){
   return String(s ?? '').replace(/[&<>"']/g, c => (
     {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
   ));
+}
+
+// --- Vue Street View à 360° (Maps Embed API) ---
+// La panoramique est affichée dans la page plutôt que par un lien : sur iPhone, les liens
+// www.google.com/maps sont interceptés par l'application Google Maps, qui ouvre une galerie de
+// photos au lieu de la vue à 360°.
+// L'API est gratuite et sans limite d'usage, mais réclame une clé Google Cloud. C'est la même
+// que celle des autres applications du domaine : le stockage local étant partagé par toutes les
+// pages d'un même site, la clé saisie une fois vaut pour toutes.
+const CLE_GOOGLE_LS = 'restaurants.cleGoogleMaps.v1';
+
+function cleGoogleMaps(){
+  try{ return (localStorage.getItem(CLE_GOOGLE_LS) || '').trim(); }catch(e){ return ''; }
+}
+
+function renderStreetView(lat, lon){
+  const el = document.createElement('details');
+  el.className = 'card';
+  el.innerHTML = '<summary><h2>Street View</h2></summary>' +
+    '<div class="street-body"></div>';
+  const corps = el.querySelector('.street-body');
+  let charge = false;
+
+  const afficher = ()=>{
+    const cle = cleGoogleMaps();
+    if(!cle){
+      corps.innerHTML = '<p class="street-note">Aucune clé Google Maps enregistrée sur cet appareil. ' +
+        'La vue à 360° passe par la Maps Embed API, gratuite mais qui exige une clé. ' +
+        '<button type="button" class="street-saisir">Saisir la clé</button></p>';
+      corps.querySelector('.street-saisir').addEventListener('click', ()=>{
+        const saisie = (prompt('Clé Google Maps (Maps Embed API) :', '') || '').trim();
+        if(!saisie) return;
+        try{ localStorage.setItem(CLE_GOOGLE_LS, saisie); }catch(e){}
+        afficher();
+      });
+      return;
+    }
+    corps.innerHTML = '<iframe class="street-frame" allowfullscreen ' +
+      'referrerpolicy="no-referrer-when-downgrade" title="Vue Street View" src="' +
+      esc('https://www.google.com/maps/embed/v1/streetview?key=' + encodeURIComponent(cle) +
+          '&location=' + lat + ',' + lon + '&fov=90&language=fr') + '"></iframe>' +
+      '<p class="street-note">Fais glisser l\'image pour regarder autour de toi. ' +
+      'La panoramique affichée est la plus proche du point, en général prise depuis la chaussée.</p>';
+    charge = true;
+  };
+
+  // Chargement paresseux : rien n'est demandé à Google tant que la section reste repliée.
+  el.addEventListener('toggle', ()=>{
+    if(el.open && !charge) afficher();
+  });
+
+  result.appendChild(el);
+  return el;
 }
 
 function renderCoords(lat, lon, info){
