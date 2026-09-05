@@ -191,6 +191,23 @@
     border:0;border-radius:12px;background:#000;display:block;
   }
   .street-note{color:var(--ink-soft);font-size:13px;margin:10px 0 0}
+  .street-actions{display:flex;justify-content:flex-end;margin-top:10px}
+  .street-plein{
+    font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    padding:8px 12px;border-radius:10px;
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+  }
+  /* Plein écran « maison » plutôt que l'API Fullscreen du navigateur : Safari iOS ne sait pas
+     mettre en plein écran un élément quelconque (seules les vidéos y ont droit). Un simple
+     positionnement fixe couvrant l'écran fonctionne, lui, partout. */
+  .street-body.plein{
+    position:fixed;inset:0;z-index:9999;background:#000;
+    padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 10px;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .street-body.plein .street-frame{flex:1;height:auto;border-radius:8px}
+  .street-body.plein .street-note{display:none}
+  .street-body.plein .street-actions{margin-top:0}
   .street-note button{
     background:none;border:none;padding:0;font:inherit;
     color:var(--contour-dark);text-decoration:underline;cursor:pointer;
@@ -291,7 +308,7 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.8</span>
+      <span class="version" id="app-version">v2.9</span>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -419,7 +436,7 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.8';
+const APP_VERSION = 'v2.9';
 document.getElementById('app-version').textContent = APP_VERSION;
 logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
@@ -936,7 +953,10 @@ function renderStreetView(lat, lon){
       esc('https://www.google.com/maps/embed/v1/streetview?key=' + encodeURIComponent(cle) +
           '&location=' + lat + ',' + lon + '&fov=90&language=fr') + '"></iframe>' +
       '<p class="street-note">Fais glisser l\'image pour regarder autour de toi. ' +
-      'La panoramique affichée est la plus proche du point, en général prise depuis la chaussée.</p>';
+      'La panoramique affichée est la plus proche du point, en général prise depuis la chaussée.</p>' +
+      '<div class="street-actions"><button type="button" class="street-plein">⛶ Plein écran</button></div>';
+    const btnPlein = corps.querySelector('.street-plein');
+    btnPlein.addEventListener('click', ()=> basculerPlein(corps, btnPlein));
     charge = true;
   };
 
@@ -947,6 +967,23 @@ function renderStreetView(lat, lon){
 
   result.appendChild(el);
   return el;
+}
+
+// Bascule du plein écran : la section couvre tout l'écran, la page ne défile plus derrière,
+// et la touche Échap (ou le bouton) revient à l'affichage normal.
+function basculerPlein(corps, bouton){
+  const actif = corps.classList.toggle('plein');
+  bouton.textContent = actif ? '✕ Quitter le plein écran' : '⛶ Plein écran';
+  document.body.style.overflow = actif ? 'hidden' : '';
+  if(actif){
+    const surEchap = (ev)=>{
+      if(ev.key === 'Escape'){
+        document.removeEventListener('keydown', surEchap);
+        if(corps.classList.contains('plein')) basculerPlein(corps, bouton);
+      }
+    };
+    document.addEventListener('keydown', surEchap);
+  }
 }
 
 function renderCoords(lat, lon, info){
