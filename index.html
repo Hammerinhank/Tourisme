@@ -51,12 +51,38 @@
     font-size:12px;letter-spacing:.22em;text-transform:uppercase;
     color:var(--contour-dark);margin:0;
   }
+  /* Le numéro de version est un bouton : il ouvre l'historique des versions. */
   .version{
-    font-family:var(--mono);font-size:12px;font-weight:700;
+    font-family:var(--mono);font-size:13px;font-weight:700;
     color:#fff;background:var(--brass);
-    border-radius:999px;padding:4px 11px;letter-spacing:.02em;
+    border:none;border-radius:999px;padding:6px 14px;letter-spacing:.02em;
     white-space:nowrap;box-shadow:0 1px 0 var(--brass-dark);
+    cursor:pointer;
   }
+  .version:active{transform:translateY(1px)}
+
+  /* Panneau d'historique des versions (même principe que le journal technique) */
+  .ver-view{
+    position:fixed;inset:0;z-index:1000;
+    background:var(--paper);
+    display:flex;flex-direction:column;gap:14px;
+    padding:24px 18px calc(24px + env(safe-area-inset-bottom));
+    box-sizing:border-box;
+  }
+  .ver-view[hidden]{display:none}
+  .ver-list{
+    flex:1;overflow:auto;margin:0;padding:0;list-style:none;
+    display:flex;flex-direction:column;gap:14px;
+  }
+  .ver-list li{
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;
+  }
+  .ver-num{
+    font-family:var(--mono);font-size:12px;font-weight:700;
+    color:var(--brass);letter-spacing:.06em;
+  }
+  .ver-txt{margin:6px 0 0;font-size:14px;color:var(--ink)}
   h1{
     font-size:clamp(30px,7vw,44px);
     line-height:1.02;margin:0;font-weight:700;letter-spacing:-.02em;
@@ -308,7 +334,8 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <span class="version" id="app-version">v2.9</span>
+      <button class="version" id="app-version" type="button"
+              title="Voir l'historique des versions">v3.0</button>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -368,6 +395,14 @@
     <button id="log-copy" class="btn2 btn-blue" type="button">Copier</button>
     <button id="log-clear" class="btn2 btn-red" type="button">Vider</button>
     <button id="log-back" class="btn2 btn-slate" type="button">Retour</button>
+  </div>
+</div>
+
+<div id="ver-view" class="ver-view" hidden>
+  <p class="eyebrow">Historique des versions</p>
+  <ul id="ver-list" class="ver-list"></ul>
+  <div class="log-actions">
+    <button id="ver-back" class="btn2 btn-slate" type="button">Retour</button>
   </div>
 </div>
 
@@ -436,8 +471,25 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v2.9';
-document.getElementById('app-version').textContent = APP_VERSION;
+const APP_VERSION = 'v3.0';
+
+// Historique des versions : quelques lignes par version, la plus récente en tête.
+// Il s'affiche en appuyant sur le numéro de version, en haut de la page.
+const VERSIONS = [
+  { num:'v3.0', txt:"Correction du doublon de la section Street View : deux affichages de lieu qui se chevauchaient (celui restauré au chargement et celui du nouveau relevé GPS) ajoutaient chacun leurs sections. Seul le relevé le plus récent s'affiche désormais. Street View indique aussi quand aucune panoramique n'existe près du point, au lieu d'un cadre noir. Le numéro de version devient un bouton qui ouvre cet historique." },
+  { num:'v2.9 et antérieures', txt:"Versions précédentes (historique non consigné) : géolocalisation, adresse Nominatim, photos Wikimedia, article Wikipédia, carte Leaflet avec appui long, Street View 360°, historique des visites synchronisé sur GitHub, journal technique." }
+];
+
+const verBtn  = document.getElementById('app-version');
+const verView = document.getElementById('ver-view');
+verBtn.textContent = APP_VERSION;
+verBtn.addEventListener('click', () => {
+  document.getElementById('ver-list').innerHTML = VERSIONS.map(v =>
+    `<li><div class="ver-num">${v.num}</div><p class="ver-txt">${v.txt}</p></li>`
+  ).join('');
+  verView.hidden = false;
+});
+document.getElementById('ver-back').addEventListener('click', () => { verView.hidden = true; });
 logMsg('Chargement de la page', { version: APP_VERSION, ua: navigator.userAgent, leafletChargé: typeof L !== 'undefined' });
 
 const STORE_KEY = 'ou-suis-je:last';
@@ -603,12 +655,26 @@ async function onPosition(pos){
   await showPlace(latitude, longitude, { accuracy, altitude, altitudeAccuracy, heading, speed, log: true });
 }
 
+// Jeton de l'affichage en cours. Chaque appel à showPlace() en prend un nouveau ;
+// un appel plus ancien qui se réveille après ses requêtes web constate que son jeton
+// n'est plus le bon et s'arrête au lieu d'ajouter ses sections à l'écran.
+//
+// Sans ce garde-fou, deux affichages pouvaient se chevaucher — typiquement la position
+// mémorisée rechargée à l'ouverture de la page (restore()) et le relevé GPS demandé
+// juste après par le bouton « Me localiser ». Les sections synchrones (Carte, Adresse,
+// Photos, À propos) étaient bien effacées par result.innerHTML = '', mais les sections
+// créées APRÈS l'attente des requêtes (Street View et Coordonnées) étaient ajoutées par
+// les deux affichages : d'où deux sections « Street View » (et deux « Coordonnées »),
+// la première portant l'ancien lieu — souvent sans panoramique, donc un cadre noir.
+let runCourant = 0;
+
 // Affiche toutes les infos d'un lieu (GPS ou historique).
 // log=true => enregistre une nouvelle entrée d'historique ; log=false => simple réaffichage.
 async function showPlace(lat, lon, opts){
   const o = opts || {};
   const log = !!o.log;
-  logMsg('showPlace() appelé', { lat, lon, log });
+  const monRun = ++runCourant;
+  logMsg('showPlace() appelé', { lat, lon, log, run: monRun });
 
   result.innerHTML = '';                 // l'affichage courant est remplacé
   label.textContent = 'Recherche du lieu…';
@@ -622,6 +688,13 @@ async function showPlace(lat, lon, opts){
     lookupPhotos(lat, lon),
     lookupWikipedia(lat, lon)
   ]);
+  // Un affichage plus récent a été demandé pendant l'attente : celui-ci est périmé,
+  // il ne doit rien ajouter à l'écran (ni rien enregistrer).
+  if(monRun !== runCourant){
+    logMsg('showPlace() abandonné : affichage périmé', { run: monRun, runActuel: runCourant });
+    return;
+  }
+
   const addrRes = results[0];
   const adresse = (addrRes.status === 'fulfilled' && addrRes.value) ? addrRes.value : '';
 
@@ -926,6 +999,27 @@ function cleGoogleMaps(){
   try{ return (localStorage.getItem(CLE_GOOGLE_LS) || '').trim(); }catch(e){ return ''; }
 }
 
+// Vérifie s'il existe une panoramique près du point. L'appel « metadata » est gratuit
+// et n'est pas facturé. S'il échoue (API non activée sur la clé, réseau coupé, CORS),
+// on ne bloque rien : on affiche le cadre comme avant.
+// Un cadre Street View tout noir signifie presque toujours « aucune panoramique ici » ;
+// cette vérification permet de l'écrire clairement plutôt que de laisser un écran noir.
+async function panoramiqueDisponible(lat, lon, cle){
+  const url = 'https://maps.googleapis.com/maps/api/streetview/metadata?location='
+            + lat + ',' + lon + '&radius=100&key=' + encodeURIComponent(cle);
+  try{
+    const r = await fetch(url);
+    const d = await r.json();
+    logMsg('Street View : métadonnées', { statut: d.status });
+    return d.status !== 'ZERO_RESULTS';   // OK, REQUEST_DENIED… : on tente l'affichage
+  }catch(e){
+    logMsg('Street View : vérification impossible, affichage tenté', { erreur: e.message });
+    return true;
+  }
+}
+
+// Une seule section « Street View » est créée par affichage de lieu (voir le garde-fou
+// runCourant dans showPlace) : si tu en vois deux à l'écran, c'est un bug de doublon.
 function renderStreetView(lat, lon){
   const el = document.createElement('details');
   el.className = 'card';
@@ -934,7 +1028,7 @@ function renderStreetView(lat, lon){
   const corps = el.querySelector('.street-body');
   let charge = false;
 
-  const afficher = ()=>{
+  const afficher = async ()=>{
     const cle = cleGoogleMaps();
     if(!cle){
       corps.innerHTML = '<p class="street-note">Aucune clé Google Maps enregistrée sur cet appareil. ' +
@@ -948,6 +1042,18 @@ function renderStreetView(lat, lon){
       });
       return;
     }
+
+    charge = true;                       // évite deux vérifications simultanées
+    corps.innerHTML = '<p class="street-note">Recherche de la panoramique la plus proche…</p>';
+    const dispo = await panoramiqueDisponible(lat, lon, cle);
+    if(!dispo){
+      const lien = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lon;
+      corps.innerHTML = '<p class="street-note">Aucune panoramique Street View à moins de 100 m ' +
+        'de ce point (zone non couverte par Google). ' +
+        '<a href="' + esc(lien) + '" target="_blank" rel="noopener">Voir le lieu sur Google Maps →</a></p>';
+      return;
+    }
+
     corps.innerHTML = '<iframe class="street-frame" allowfullscreen ' +
       'referrerpolicy="no-referrer-when-downgrade" title="Vue Street View" src="' +
       esc('https://www.google.com/maps/embed/v1/streetview?key=' + encodeURIComponent(cle) +
