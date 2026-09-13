@@ -342,6 +342,28 @@
     margin:8px 0 0;text-align:right;
   }
   .gem-err{color:var(--signal);margin:0}
+
+  /* Galerie du sujet « Photos emblématiques » : une photo + son commentaire */
+  .gem-photos{display:grid;gap:14px;margin-bottom:10px}
+  .gem-photo{
+    margin:0;border:1px solid var(--line);border-radius:12px;
+    overflow:hidden;background:var(--paper);
+  }
+  .gem-photo img{
+    width:100%;height:200px;object-fit:cover;display:block;background:#dfe6ea;
+  }
+  .gem-photo.sans-image img{display:none}
+  .gem-photo-vide{
+    display:block;padding:16px;font-size:13px;color:var(--contour-dark);
+    text-decoration:none;text-align:center;
+  }
+  .gem-photo figcaption{
+    display:flex;flex-direction:column;gap:4px;
+    padding:10px 12px;background:var(--card);
+  }
+  .gem-photo figcaption strong{font-size:15px}
+  .gem-photo-txt{font-size:14px;color:var(--ink);line-height:1.45}
+  .gem-credit{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
   .gem-suite{align-self:flex-start}
   .gem-avert{
     margin:10px 0 0;font-size:13px;color:var(--signal);
@@ -429,7 +451,7 @@
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
       <button class="version" id="app-version" type="button"
-              title="Voir l'historique des versions">v3.3</button>
+              title="Voir l'historique des versions">v3.4</button>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -565,11 +587,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.3';
+const APP_VERSION = 'v3.4';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.4', txt:"Nouveau sujet « Photos emblématiques » dans la section Gemini : Gemini ne donne que les sujets à photographier et leur commentaire, au format JSON ; l'application va ensuite chercher elle-même la vraie image de chaque sujet sur Wikipédia puis sur Wikimedia Commons — les URL d'images fournies directement par un modèle sont souvent inventées. Galerie affichée avec le commentaire de Gemini sous chaque photo, décompte de progression pendant la recherche (traités / restants), sujet sans image remplacé par un lien de recherche, image morte masquée sans perdre son commentaire. La galerie est mémorisée comme les autres sujets (bouton vert)." },
   { num:'v3.3', txt:"Les réponses de Gemini sont conservées tant qu'on ne change pas de lieu : chaque sujet garde la sienne, son bouton s'entoure de vert, et le rouvrir réaffiche la réponse sans interroger Gemini à nouveau. Une question libre crée son propre bouton, on passe donc d'une conversation à l'autre librement. Le bouton « Nouvelle conversation » disparaît, remplacé par « Poursuivre cette conversation » quand on veut enchaîner dans le même sujet. La mémoire (localStorage) ne contient qu'un lieu à la fois et peut être vidée depuis Paramétrage." },
   { num:'v3.2', txt:"Réponses de Gemini coupées en pleine phrase : la cause n'était pas l'affichage mais la limite de longueur, épuisée par la « réflexion » interne des modèles 2.5, qui puise dans la même réserve que la réponse. Cette réflexion est désormais désactivée par défaut, la limite passe à 4 000 jetons, et une réponse qui atteint quand même la limite l'annonce clairement avec un bouton « Continuer la réponse ». Tout le technique (clé API, modèle, longueur maximale, réflexion) est regroupé dans une sous-section repliable « Paramétrage » en bas de la section Gemini." },
   { num:'v3.1', txt:"Nouvelle section « Demander à Gemini » : on pose une question libre sur le lieu affiché (ou on choisit une suggestion : histoire, que voir, anecdotes, spécialités, balades) et Gemini répond, en gardant le fil de la conversation pour les questions suivantes. Le contexte envoyé contient les coordonnées, l'adresse relevée et le titre de l'article Wikipédia le plus proche. La clé API Gemini se saisit dans la section et reste dans ce navigateur (localStorage, étiquette « gemini_api_key » partagée avec les autres applis du domaine)." },
@@ -1700,8 +1723,107 @@ const SUGGESTIONS_GEMINI = [
   { label:'Anecdotes',      q:"Quelles anecdotes ou curiosités peu connues se rattachent à cet endroit ?" },
   { label:'Spécialités',    q:"Quelles sont les spécialités culinaires et les produits locaux de cet endroit ?" },
   { label:'Balades',        q:"Quelles balades ou randonnées peut-on faire au départ d'ici ?" },
-  { label:'Architecture',   q:"Que remarque-t-on dans l'architecture et le paysage typiques de cet endroit ?" }
+  { label:'Architecture',   q:"Que remarque-t-on dans l'architecture et le paysage typiques de cet endroit ?" },
+  { label:'Photos emblématiques', mode:'photos',
+    q:"Quels sont les sujets les plus emblématiques à photographier ici et alentour ?" }
 ];
+
+// --- Sujet « Photos emblématiques » ---
+// Gemini ne fournit PAS les adresses des images : un modèle invente volontiers des
+// URL plausibles qui renvoient une erreur 404. Il ne donne que des sujets (nom +
+// commentaire) au format JSON ; l'application va ensuite chercher la vraie photo de
+// chaque sujet sur Wikipédia puis, à défaut, sur Wikimedia Commons.
+const QUESTION_PHOTOS =
+  "Donne les 8 sujets les plus emblématiques à photographier à cet endroit et dans ses environs " +
+  "immédiats (monuments, paysages, points de vue, détails typiques), du plus proche au plus éloigné.";
+
+const INSTRUCTION_PHOTOS_SUFFIXE =
+  "\n\nPour cette demande, réponds UNIQUEMENT par un tableau JSON valide, sans texte avant ni après, " +
+  "sans bloc de code Markdown. Chaque élément a exactement ces trois champs :\n" +
+  '{"titre": "nom court du sujet", "recherche": "termes de recherche précis pour trouver une photo ' +
+  'de ce sujet sur Wikipédia (nom propre complet + commune)", "commentaire": "une à deux phrases ' +
+  'expliquant ce qu\'on voit et pourquoi ça vaut la photo"}\n' +
+  "N'invente aucun lieu : ne cite que des sujets dont tu es sûr qu'ils existent réellement à cet " +
+  "endroit. Mieux vaut 4 sujets certains que 8 approximatifs.";
+
+// Extrait le tableau JSON de la réponse (le modèle ajoute parfois des ``` ou une phrase)
+function analyserJsonPhotos(texte){
+  let t = String(texte || '').replace(/```(?:json)?/gi, '').trim();
+  const i = t.indexOf('['), j = t.lastIndexOf(']');
+  if(i < 0 || j <= i) return [];
+  try{
+    const arr = JSON.parse(t.slice(i, j + 1));
+    if(!Array.isArray(arr)) return [];
+    return arr
+      .filter(o => o && o.titre)
+      .map(o => ({
+        titre: String(o.titre).slice(0, 120),
+        recherche: String(o.recherche || o.titre).slice(0, 160),
+        commentaire: String(o.commentaire || '').slice(0, 400)
+      }))
+      .slice(0, 10);
+  }catch(e){
+    logMsg('Gemini photos : JSON illisible', { erreur: e.message, début: t.slice(0, 120) });
+    return [];
+  }
+}
+
+// Cherche une vraie photo pour un sujet : image principale de l'article Wikipédia,
+// puis à défaut premier fichier correspondant sur Wikimedia Commons.
+async function chercherPhotoSujet(recherche){
+  try{
+    const u = 'https://fr.wikipedia.org/w/api.php?action=query&generator=search'
+            + '&gsrsearch=' + encodeURIComponent(recherche)
+            + '&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=600&format=json&origin=*';
+    const d = await (await fetch(u)).json();
+    const p = Object.values((d && d.query && d.query.pages) || {})[0];
+    if(p && p.thumbnail && p.thumbnail.source){
+      return {
+        url: p.thumbnail.source,
+        page: 'https://fr.wikipedia.org/wiki/' + encodeURIComponent(p.title),
+        source: 'Wikipédia — ' + p.title
+      };
+    }
+  }catch(e){ /* on tente Commons */ }
+  try{
+    const u = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search'
+            + '&gsrnamespace=6&gsrsearch=' + encodeURIComponent(recherche)
+            + '&gsrlimit=1&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*';
+    const d = await (await fetch(u)).json();
+    const p = Object.values((d && d.query && d.query.pages) || {})[0];
+    const info = p && p.imageinfo && p.imageinfo[0];
+    if(info && /\.(jpe?g|png)$/i.test(info.url || '')){
+      return {
+        url: info.thumburl || info.url,
+        page: info.descriptionurl || '',
+        source: 'Wikimedia Commons'
+      };
+    }
+  }catch(e){ /* rien trouvé */ }
+  return {
+    url: '',
+    page: 'https://fr.wikipedia.org/w/index.php?search=' + encodeURIComponent(recherche),
+    source: ''
+  };
+}
+
+// Galerie : une photo par sujet, avec le commentaire de Gemini en légende.
+function rendrePhotosGemini(photos){
+  const cases = photos.map(p => {
+    const visuel = p.url
+      ? '<a href="' + esc(p.page) + '" target="_blank" rel="noopener">' +
+          '<img loading="lazy" src="' + esc(p.url) + '" alt="' + esc(p.titre) + '"></a>'
+      : '<a class="gem-photo-vide" href="' + esc(p.page) + '" target="_blank" rel="noopener">' +
+          'Aucune photo libre trouvée — chercher sur Wikipédia →</a>';
+    return '<figure class="gem-photo">' + visuel +
+      '<figcaption>' +
+        '<strong>' + esc(p.titre) + '</strong>' +
+        '<span class="gem-photo-txt">' + esc(p.commentaire || '') + '</span>' +
+        (p.source ? '<span class="gem-credit">' + esc(p.source) + '</span>' : '') +
+      '</figcaption></figure>';
+  }).join('');
+  return '<div class="gem-photos">' + cases + '</div>';
+}
 
 function cleGemini(){
   try{ return (localStorage.getItem(CLE_GEMINI_LS) || '').trim(); }catch(e){ return ''; }
@@ -2020,9 +2142,11 @@ function renderGemini(lat, lon, ctx){
   function construireChips(){
     chips.innerHTML = '';
     const vus = new Set();
-    const liste = SUGGESTIONS_GEMINI.map(s => ({ label: s.label, question: s.q }));
+    const liste = SUGGESTIONS_GEMINI.map(s => ({ label: s.label, question: s.q, mode: s.mode || '' }));
     for(const v of convs){
-      if(!liste.some(s => s.label === v.label)) liste.push({ label: v.label, question: v.question });
+      if(!liste.some(s => s.label === v.label)){
+        liste.push({ label: v.label, question: v.question, mode: v.mode || '' });
+      }
     }
     for(const s of liste){
       if(vus.has(s.label)) continue;
@@ -2033,7 +2157,7 @@ function renderGemini(lat, lon, ctx){
       b.textContent = s.label;
       b.dataset.label = s.label;
       b.title = s.question;
-      b.addEventListener('click', () => ouvrirSujet(s.label, s.question));
+      b.addEventListener('click', () => ouvrirSujet(s.label, s.question, s.mode));
       chips.appendChild(b);
     }
     majChips();
@@ -2048,7 +2172,7 @@ function renderGemini(lat, lon, ctx){
     }
   }
 
-  function ouvrirSujet(label, question){
+  function ouvrirSujet(label, question, mode){
     const conv = trouverConv(label);
     if(conv){
       afficherConv(conv);
@@ -2056,7 +2180,8 @@ function renderGemini(lat, lon, ctx){
       logMsg('Gemini : réponse relue depuis la mémoire locale', { sujet: label });
       return;
     }
-    envoyer(question, { label });
+    if(mode === 'photos') demanderPhotos(label);
+    else envoyer(question, { label });
   }
 
   // --- Affichage d'une conversation ---
@@ -2074,8 +2199,21 @@ function renderGemini(lat, lon, ctx){
     fil.innerHTML = '';
     conv.tours.forEach((t, i) => {
       ajouterBulle('gem-q-bubble', esc(t.q));
+      // Un tour peut porter une galerie de photos (sujet « Photos emblématiques »)
+      // au lieu d'un texte : dans ce cas c'est la galerie qui s'affiche.
+      const corps = (t.photos && t.photos.length)
+        ? rendrePhotosGemini(t.photos)
+        : formaterTexteGemini(t.r);
       const b = ajouterBulle('gem-r-bubble',
-        formaterTexteGemini(t.r) + '<p class="gem-modele">' + esc(t.modele || '') + '</p>');
+        corps + '<p class="gem-modele">' + esc(t.modele || '') + '</p>');
+      // Une image qui ne se charge pas (fichier retiré, lien mort) laisse le
+      // commentaire visible plutôt qu'un cadre cassé.
+      for(const img of b.querySelectorAll('.gem-photo img')){
+        img.addEventListener('error', () => {
+          const fig = img.closest('.gem-photo');
+          if(fig) fig.classList.add('sans-image');
+        });
+      }
       if(t.tronque && i === conv.tours.length - 1) marquerTronquee(b, conv);
     });
     majChips();
@@ -2098,6 +2236,82 @@ function renderGemini(lat, lon, ctx){
     majSuite();
     if(modeSuite) champ.focus();
   });
+
+  // --- Sujet « Photos emblématiques » : Gemini donne les sujets, l'app trouve les images ---
+  async function demanderPhotos(label){
+    if(enCours) return;
+    if(!cleGemini()){
+      statut('Enregistre d’abord ta clé API Gemini dans la section Paramétrage, en bas.');
+      param.open = true;
+      champKey.focus();
+      return;
+    }
+
+    const conv = { label, question: QUESTION_PHOTOS, mode: 'photos', tours: [] };
+    convs.push(conv);
+    courant = conv;
+    modeSuite = false;
+    fil.innerHTML = '';
+    enCours = true;
+    btnSend.disabled = true;
+    btnSend.textContent = 'Gemini réfléchit…';
+    statut('');
+    majChips();
+    majSuite();
+
+    const titreTour = 'Photos emblématiques du lieu et de ses environs';
+    ajouterBulle('gem-q-bubble', esc(titreTour));
+    const bulle = ajouterBulle('gem-r-bubble', '<p class="muted">Gemini choisit les sujets…</p>');
+    bulle.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+    try{
+      const rep = await demanderGemini(
+        [{ role: 'user', parts: [{ text: QUESTION_PHOTOS }] }],
+        INSTRUCTION + INSTRUCTION_PHOTOS_SUFFIXE
+      );
+      const sujets = analyserJsonPhotos(rep.texte);
+      if(!sujets.length) throw new Error("aucun sujet exploitable dans la réponse de Gemini");
+      logMsg('Gemini photos : sujets reçus', { nombre: sujets.length });
+
+      // Recherche des images une par une, avec décompte visible : si la boucle
+      // s'emballait ou restait bloquée, ça se verrait immédiatement à l'écran.
+      const photos = [];
+      for(let i = 0; i < sujets.length; i++){
+        bulle.innerHTML = '<p class="muted">Recherche des photos : ' + (i + 1) + '/' + sujets.length
+          + ' — ' + esc(sujets[i].titre) + ' (' + (sujets.length - i - 1) + ' restante(s))…</p>';
+        const img = await chercherPhotoSujet(sujets[i].recherche);
+        photos.push({
+          titre: sujets[i].titre,
+          commentaire: sujets[i].commentaire,
+          url: img.url, page: img.page, source: img.source
+        });
+        logMsg('Gemini photos : sujet traité', {
+          traités: i + 1, restants: sujets.length - i - 1,
+          titre: sujets[i].titre, trouvée: !!img.url
+        });
+      }
+
+      // Le texte équivalent sert de contexte si on poursuit la conversation
+      const resume = photos.map(p => '- ' + p.titre + ' : ' + p.commentaire).join('\n');
+      conv.tours.push({ q: titreTour, r: resume, modele: rep.modele, tronque: false, photos });
+      sauverConvs(LIEU, convs);
+      afficherConv(conv);
+      const trouvees = photos.filter(p => p.url).length;
+      statut(trouvees + ' photo(s) trouvée(s) sur ' + photos.length + ' sujet(s).');
+    }catch(e){
+      convs = convs.filter(v => v !== conv);
+      bulle.innerHTML = '<p class="gem-err">Échec : ' + esc(e.message) + '</p>';
+      if(e.statut === 400 || e.statut === 403){
+        statut('Clé refusée ou API « Generative Language » non activée pour cette clé.');
+      }
+      logMsg('Gemini photos : échec', { erreur: e.message });
+      majChips();
+    }finally{
+      enCours = false;
+      btnSend.disabled = false;
+      btnSend.textContent = 'Demander';
+    }
+  }
 
   // --- Envoi d'une question ---
   // opts.label     : sujet à créer (bouton de suggestion)
