@@ -301,6 +301,18 @@
   }
   .gem-chip:hover{background:#e3e9ec}
   .gem-chip:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  /* Liseré vert : une réponse est déjà en mémoire pour ce sujet */
+  .gem-chip.repondu{
+    border-color:var(--contour);
+    box-shadow:0 0 0 1px var(--contour);
+    color:var(--contour-dark);
+  }
+  /* Conversation actuellement affichée */
+  .gem-chip.actif{
+    background:var(--contour);border-color:var(--contour);color:#fff;
+    box-shadow:0 0 0 1px var(--contour);
+  }
+  .gem-chip.actif:hover{background:var(--contour-dark)}
   .gem-q{
     width:100%;font-family:var(--sans);font-size:15px;line-height:1.45;
     padding:12px 14px;border:1px solid var(--line);border-radius:10px;
@@ -330,7 +342,7 @@
     margin:8px 0 0;text-align:right;
   }
   .gem-err{color:var(--signal);margin:0}
-  .gem-reset{align-self:flex-start}
+  .gem-suite{align-self:flex-start}
   .gem-avert{
     margin:10px 0 0;font-size:13px;color:var(--signal);
     border-top:1px dashed var(--line);padding-top:10px;
@@ -417,7 +429,7 @@
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
       <button class="version" id="app-version" type="button"
-              title="Voir l'historique des versions">v3.2</button>
+              title="Voir l'historique des versions">v3.3</button>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -553,11 +565,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.2';
+const APP_VERSION = 'v3.3';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.3', txt:"Les réponses de Gemini sont conservées tant qu'on ne change pas de lieu : chaque sujet garde la sienne, son bouton s'entoure de vert, et le rouvrir réaffiche la réponse sans interroger Gemini à nouveau. Une question libre crée son propre bouton, on passe donc d'une conversation à l'autre librement. Le bouton « Nouvelle conversation » disparaît, remplacé par « Poursuivre cette conversation » quand on veut enchaîner dans le même sujet. La mémoire (localStorage) ne contient qu'un lieu à la fois et peut être vidée depuis Paramétrage." },
   { num:'v3.2', txt:"Réponses de Gemini coupées en pleine phrase : la cause n'était pas l'affichage mais la limite de longueur, épuisée par la « réflexion » interne des modèles 2.5, qui puise dans la même réserve que la réponse. Cette réflexion est désormais désactivée par défaut, la limite passe à 4 000 jetons, et une réponse qui atteint quand même la limite l'annonce clairement avec un bouton « Continuer la réponse ». Tout le technique (clé API, modèle, longueur maximale, réflexion) est regroupé dans une sous-section repliable « Paramétrage » en bas de la section Gemini." },
   { num:'v3.1', txt:"Nouvelle section « Demander à Gemini » : on pose une question libre sur le lieu affiché (ou on choisit une suggestion : histoire, que voir, anecdotes, spécialités, balades) et Gemini répond, en gardant le fil de la conversation pour les questions suivantes. Le contexte envoyé contient les coordonnées, l'adresse relevée et le titre de l'article Wikipédia le plus proche. La clé API Gemini se saisit dans la section et reste dans ce navigateur (localStorage, étiquette « gemini_api_key » partagée avec les autres applis du domaine)." },
   { num:'v3.0', txt:"Correction du doublon de la section Street View : deux affichages de lieu qui se chevauchaient (celui restauré au chargement et celui du nouveau relevé GPS) ajoutaient chacun leurs sections. Seul le relevé le plus récent s'affiche désormais. Street View indique aussi quand aucune panoramique n'existe près du point, au lieu d'un cadre noir. Le numéro de version devient un bouton qui ouvre cet historique." },
@@ -1815,11 +1828,30 @@ function formaterTexteGemini(t){
   return html || '<p class="muted">Réponse vide.</p>';
 }
 
+// Conversations mémorisées pour le lieu affiché. Tant qu'on ne change pas de lieu,
+// une question déjà posée n'est plus renvoyée à Gemini : re-cliquer sur son bouton
+// réaffiche la réponse conservée. Les boutons déjà répondus portent un liseré vert.
+// Le stockage est local (localStorage) et ne contient qu'un seul lieu à la fois :
+// dès qu'on se déplace, l'ancien contenu est remplacé.
+const GEM_CONVS_LS = 'ou-suis-je:gemini-convs';
+
+function chargerConvs(lieu){
+  try{
+    const d = JSON.parse(localStorage.getItem(GEM_CONVS_LS) || 'null');
+    if(d && d.lieu === lieu && Array.isArray(d.convs)) return d.convs;
+  }catch(e){}
+  return [];
+}
+function sauverConvs(lieu, convs){
+  try{ localStorage.setItem(GEM_CONVS_LS, JSON.stringify({ lieu, convs })); }catch(e){}
+}
+
 // Section « Demander à Gemini » : une par affichage de lieu, repliée par défaut.
 // Aucun appel réseau n'est fait tant qu'aucune question n'est posée.
 function renderGemini(lat, lon, ctx){
   const c = ctx || {};
   const reg0 = reglagesGemini();
+  const LIEU = (+lat).toFixed(6) + ',' + (+lon).toFixed(6);
   const el = document.createElement('details');
   el.className = 'card';
 
@@ -1833,8 +1865,9 @@ function renderGemini(lat, lon, ctx){
   el.innerHTML =
     '<summary><h2>Demander à Gemini</h2></summary>' +
     '<div class="gem-body">' +
-      '<p class="muted gem-intro">Pose une question libre sur ce lieu. Gemini reçoit les coordonnées, ' +
-        "l'adresse relevée et le titre de l'article Wikipédia le plus proche, et garde le fil de la conversation.</p>" +
+      '<p class="muted gem-intro">Pose une question libre sur ce lieu, ou choisis un sujet. ' +
+        'Chaque sujet garde sa réponse : un bouton entouré de vert a déjà répondu, le rouvrir ' +
+        "n'interroge pas Gemini à nouveau.</p>" +
       '<div class="gem-chips"></div>' +
       '<textarea class="gem-q" rows="2" placeholder="Ta question sur ce lieu…"></textarea>' +
       '<div class="gem-actions">' +
@@ -1842,7 +1875,7 @@ function renderGemini(lat, lon, ctx){
       '</div>' +
       '<p class="gem-status"></p>' +
       '<div class="gem-thread"></div>' +
-      '<button type="button" class="btn2 btn-slate gem-reset" hidden>Nouvelle conversation</button>' +
+      '<button type="button" class="btn2 btn-slate gem-suite" hidden>Poursuivre cette conversation</button>' +
 
       // --- Tout le technique est rassemblé ici, replié par défaut ---
       '<details class="gem-param">' +
@@ -1883,6 +1916,12 @@ function renderGemini(lat, lon, ctx){
               "qu'un début de phrase. Laissée décochée, la réponse complète arrive plus vite.</p>" +
           '</div>' +
 
+          '<div class="gem-champ">' +
+            '<span class="gem-lab">Conversations mémorisées</span>' +
+            '<p class="gem-note">Les réponses obtenues pour ce lieu sont gardées dans ce navigateur et ' +
+              'remplacées dès qu\'on change de lieu. <button type="button" class="linklike gem-oublier">Oublier les réponses de ce lieu</button></p>' +
+          '</div>' +
+
         '</div>' +
       '</details>' +
     '</div>';
@@ -1890,9 +1929,9 @@ function renderGemini(lat, lon, ctx){
   const chips    = el.querySelector('.gem-chips');
   const champ    = el.querySelector('.gem-q');
   const btnSend  = el.querySelector('.gem-send');
+  const btnSuite = el.querySelector('.gem-suite');
   const zoneStatut = el.querySelector('.gem-status');
   const fil      = el.querySelector('.gem-thread');
-  const btnReset = el.querySelector('.gem-reset');
   const param    = el.querySelector('.gem-param');
   const champKey = el.querySelector('.gem-keyinput');
   const btnKeySave = el.querySelector('.gem-keysave');
@@ -1901,6 +1940,7 @@ function renderGemini(lat, lon, ctx){
   const selModele = el.querySelector('.gem-modele-sel');
   const selLen   = el.querySelector('.gem-len');
   const caseThink = el.querySelector('.gem-think');
+  const btnOublier = el.querySelector('.gem-oublier');
 
   // Contexte du lieu, envoyé en consigne système à chaque requête
   const infos = ['Coordonnées GPS : ' + (+lat).toFixed(6) + ', ' + (+lon).toFixed(6) + '.'];
@@ -1914,11 +1954,15 @@ function renderGemini(lat, lon, ctx){
     "Si tu n'es pas sûr d'un fait, dis-le clairement plutôt que d'inventer, et distingue bien ce qui concerne " +
     "le point exact des coordonnées de ce qui concerne la commune ou la région alentour.";
 
-  const echanges = [];    // historique de la conversation au format attendu par l'API
+  // Une conversation = { label, question, tours:[{ q, r, modele, tronque }] }
+  let convs   = chargerConvs(LIEU);
+  let courant = null;      // conversation affichée
+  let modeSuite = false;   // la prochaine question prolonge la conversation affichée
   let enCours = false;
 
   function statut(msg){ zoneStatut.textContent = msg || ''; }
 
+  // --- Paramétrage : clé, modèle, longueur, réflexion ---
   function majEtatCle(){
     const a = !!cleGemini();
     etatKey.textContent = a ? 'clé enregistrée' : 'aucune clé sur cet appareil';
@@ -1940,7 +1984,6 @@ function renderGemini(lat, lon, ctx){
     majEtatCle();
     statut('Clé supprimée de ce navigateur.');
   });
-
   selModele.addEventListener('change', () => {
     setReglageGemini(GEM_MODELE_LS, selModele.value);
     statut('Modèle : ' + selModele.value);
@@ -1955,17 +1998,68 @@ function renderGemini(lat, lon, ctx){
       ? 'Réflexion activée (réponses plus lentes, risque de troncature).'
       : 'Réflexion désactivée.');
   });
+  btnOublier.addEventListener('click', () => {
+    convs = [];
+    courant = null;
+    fil.innerHTML = '';
+    sauverConvs(LIEU, convs);
+    construireChips();
+    majSuite();
+    statut('Réponses mémorisées effacées pour ce lieu.');
+  });
 
-  // Boutons de suggestion : remplissent le champ et envoient directement
-  for(const s of SUGGESTIONS_GEMINI){
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'gem-chip';
-    b.textContent = s.label;
-    b.addEventListener('click', () => { champ.value = s.q; envoyer(); });
-    chips.appendChild(b);
+  // --- Boutons de sujets (suggestions + questions libres déjà posées) ---
+  function libelleCourt(q){
+    const t = q.replace(/\s+/g, ' ').trim();
+    return t.length > 30 ? t.slice(0, 29) + '…' : t;
+  }
+  function trouverConv(label){
+    return convs.find(v => v.label === label) || null;
   }
 
+  function construireChips(){
+    chips.innerHTML = '';
+    const vus = new Set();
+    const liste = SUGGESTIONS_GEMINI.map(s => ({ label: s.label, question: s.q }));
+    for(const v of convs){
+      if(!liste.some(s => s.label === v.label)) liste.push({ label: v.label, question: v.question });
+    }
+    for(const s of liste){
+      if(vus.has(s.label)) continue;
+      vus.add(s.label);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gem-chip';
+      b.textContent = s.label;
+      b.dataset.label = s.label;
+      b.title = s.question;
+      b.addEventListener('click', () => ouvrirSujet(s.label, s.question));
+      chips.appendChild(b);
+    }
+    majChips();
+  }
+
+  // Liseré vert = réponse déjà obtenue ; bouton plein = conversation affichée
+  function majChips(){
+    for(const b of chips.querySelectorAll('.gem-chip')){
+      const conv = trouverConv(b.dataset.label);
+      b.classList.toggle('repondu', !!conv);
+      b.classList.toggle('actif', !!conv && conv === courant);
+    }
+  }
+
+  function ouvrirSujet(label, question){
+    const conv = trouverConv(label);
+    if(conv){
+      afficherConv(conv);
+      statut('Réponse déjà obtenue pour ce sujet : affichée sans nouvelle requête à Gemini.');
+      logMsg('Gemini : réponse relue depuis la mémoire locale', { sujet: label });
+      return;
+    }
+    envoyer(question, { label });
+  }
+
+  // --- Affichage d'une conversation ---
   function ajouterBulle(classe, html){
     const d = document.createElement('div');
     d.className = classe;
@@ -1974,7 +2068,41 @@ function renderGemini(lat, lon, ctx){
     return d;
   }
 
-  // opts.silencieux : la question n'apparaît pas dans le fil (cas « Continuer la réponse »)
+  function afficherConv(conv){
+    courant = conv;
+    modeSuite = false;
+    fil.innerHTML = '';
+    conv.tours.forEach((t, i) => {
+      ajouterBulle('gem-q-bubble', esc(t.q));
+      const b = ajouterBulle('gem-r-bubble',
+        formaterTexteGemini(t.r) + '<p class="gem-modele">' + esc(t.modele || '') + '</p>');
+      if(t.tronque && i === conv.tours.length - 1) marquerTronquee(b, conv);
+    });
+    majChips();
+    majSuite();
+    fil.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  function majSuite(){
+    btnSuite.hidden = !courant;
+    btnSuite.textContent = modeSuite
+      ? 'Annuler la suite (poser une nouvelle question)'
+      : 'Poursuivre cette conversation';
+    champ.placeholder = (modeSuite && courant)
+      ? 'Question de suite sur « ' + courant.label + ' »…'
+      : 'Ta question sur ce lieu…';
+  }
+
+  btnSuite.addEventListener('click', () => {
+    modeSuite = !modeSuite;
+    majSuite();
+    if(modeSuite) champ.focus();
+  });
+
+  // --- Envoi d'une question ---
+  // opts.label     : sujet à créer (bouton de suggestion)
+  // opts.conv      : conversation à prolonger
+  // opts.silencieux: la question n'apparaît pas dans le fil (cas « Continuer la réponse »)
   async function envoyer(texte, opts){
     if(enCours) return;
     const o = opts || {};
@@ -1987,42 +2115,73 @@ function renderGemini(lat, lon, ctx){
       return;
     }
 
+    // Conversation visée : celle qu'on prolonge, ou une nouvelle
+    let conv = o.conv || null;
+    if(!conv && modeSuite && courant) conv = courant;
+    const nouvelle = !conv;
+    if(nouvelle){
+      conv = { label: o.label || libelleCourt(q), question: q, tours: [] };
+      // un même libellé ne doit pas exister deux fois
+      let n = 2, base = conv.label;
+      while(trouverConv(conv.label)) conv.label = base + ' (' + (n++) + ')';
+      convs.push(conv);
+    }
+
     enCours = true;
     btnSend.disabled = true;
     btnSend.textContent = 'Gemini réfléchit…';
     statut('');
     if(texte == null) champ.value = '';
 
+    if(nouvelle || !o.silencieux) courant = conv;
+    if(nouvelle) fil.innerHTML = '';
+    modeSuite = false;
+    majChips();
+    majSuite();
+
     if(!o.silencieux) ajouterBulle('gem-q-bubble', esc(q));
     const bulleR = ajouterBulle('gem-r-bubble', '<p class="muted">Gemini réfléchit…</p>');
     bulleR.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 
+    // Historique de CETTE conversation, reconstitué à chaque requête
+    const echanges = [];
+    for(const t of conv.tours){
+      echanges.push({ role: 'user',  parts: [{ text: t.q }] });
+      echanges.push({ role: 'model', parts: [{ text: t.r }] });
+    }
     echanges.push({ role: 'user', parts: [{ text: q }] });
-    logMsg('Gemini : question envoyée', { question: q.slice(0, 120), tour: echanges.length });
+    logMsg('Gemini : question envoyée', { sujet: conv.label, question: q.slice(0, 120), tour: conv.tours.length + 1 });
 
     try{
       const rep = await demanderGemini(echanges, INSTRUCTION);
-      echanges.push({ role: 'model', parts: [{ text: rep.texte }] });
-      bulleR.innerHTML = formaterTexteGemini(rep.texte) +
-        '<p class="gem-modele">' + esc(rep.modele) + '</p>';
-      if(rep.tronque) marquerTronquee(bulleR);
+      if(o.silencieux && conv.tours.length){
+        // suite d'une réponse tronquée : le texte se recolle à la précédente
+        const dernier = conv.tours[conv.tours.length - 1];
+        dernier.r += '\n' + rep.texte;
+        dernier.modele = rep.modele;
+        dernier.tronque = rep.tronque;
+      }else{
+        conv.tours.push({ q, r: rep.texte, modele: rep.modele, tronque: rep.tronque });
+      }
+      sauverConvs(LIEU, convs);
+      afficherConv(conv);
     }catch(e){
-      echanges.pop();                   // la question n'a pas abouti : elle sort du fil de discussion
+      if(nouvelle) convs = convs.filter(v => v !== conv);   // conversation restée sans réponse
       bulleR.innerHTML = '<p class="gem-err">Échec de la requête : ' + esc(e.message) + '</p>';
       if(e.statut === 400 || e.statut === 403){
         statut('Clé refusée ou API « Generative Language » non activée pour cette clé.');
       }
+      majChips();
     }finally{
       enCours = false;
       btnSend.disabled = false;
       btnSend.textContent = 'Demander';
-      btnReset.hidden = false;
     }
   }
 
   // Réponse arrêtée par la limite de longueur : on le dit explicitement (sinon le texte
   // semble simplement s'interrompre en pleine phrase) et on propose de la faire continuer.
-  function marquerTronquee(bulle){
+  function marquerTronquee(bulle, conv){
     const avert = document.createElement('p');
     avert.className = 'gem-avert';
     avert.textContent = 'Réponse interrompue : la longueur maximale autorisée est atteinte '
@@ -2036,7 +2195,7 @@ function renderGemini(lat, lon, ctx){
       b.remove();
       avert.remove();
       envoyer("Reprends ta réponse exactement là où elle s'est arrêtée, sans rien répéter ni "
-            + "réintroduire le sujet.", { silencieux: true });
+            + "réintroduire le sujet.", { conv, silencieux: true });
     });
     bulle.appendChild(b);
   }
@@ -2047,12 +2206,9 @@ function renderGemini(lat, lon, ctx){
     if(ev.key === 'Enter' && !ev.shiftKey){ ev.preventDefault(); envoyer(); }
   });
 
-  btnReset.addEventListener('click', () => {
-    echanges.length = 0;
-    fil.innerHTML = '';
-    btnReset.hidden = true;
-    statut('Conversation effacée.');
-  });
+  construireChips();
+  majSuite();
+  if(convs.length) statut(convs.length + ' réponse(s) déjà en mémoire pour ce lieu (boutons verts).');
 
   result.appendChild(el);
   return el;
