@@ -290,6 +290,48 @@
   }
   .gallery a{color:var(--contour-dark);text-decoration:none}
 
+  /* --- Section « Demander à Gemini » --- */
+  .gem-body{display:flex;flex-direction:column;gap:12px}
+  .gem-intro{margin:0}
+  .gem-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .gem-chip{
+    font:600 13px/1 var(--sans);color:var(--contour-dark);
+    background:var(--paper);border:1px solid var(--line);
+    border-radius:999px;padding:9px 13px;cursor:pointer;
+  }
+  .gem-chip:hover{background:#e3e9ec}
+  .gem-chip:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  .gem-q{
+    width:100%;font-family:var(--sans);font-size:15px;line-height:1.45;
+    padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+    background:var(--paper);color:var(--ink);resize:vertical;box-sizing:border-box;
+  }
+  .gem-q:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  .gem-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .gem-actions .btn2{flex:1 1 0;min-width:0}
+  .gem-keyrow{display:flex;gap:8px;flex-wrap:wrap}
+  .gem-keyrow[hidden]{display:none}
+  .gem-status{margin:0;font-family:var(--mono);font-size:12px;color:var(--ink-soft);min-height:0}
+  .gem-status:empty{display:none}
+  .gem-thread{display:flex;flex-direction:column;gap:12px}
+  .gem-thread:empty{display:none}
+  .gem-q-bubble{
+    background:var(--paper);border-left:3px solid var(--contour);
+    border-radius:0 10px 10px 0;padding:10px 14px;font-size:15px;font-weight:600;
+  }
+  .gem-r-bubble{font-size:15px;line-height:1.55}
+  .gem-r-bubble p{margin:0 0 10px}
+  .gem-r-bubble p:last-child{margin-bottom:0}
+  .gem-r-bubble ul{margin:0 0 10px;padding-left:20px}
+  .gem-r-bubble li{margin:0 0 5px}
+  .gem-h{font-size:15px;margin:12px 0 6px;color:var(--contour-dark)}
+  .gem-modele{
+    font-family:var(--mono);font-size:11px;color:var(--ink-soft);
+    margin:8px 0 0;text-align:right;
+  }
+  .gem-err{color:var(--signal);margin:0}
+  .gem-reset{align-self:flex-start}
+
   .history{margin-top:26px;border-top:1px solid var(--line);padding-top:20px}
   .history[hidden]{display:none}
   .history-head{
@@ -335,7 +377,7 @@
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
       <button class="version" id="app-version" type="button"
-              title="Voir l'historique des versions">v3.0</button>
+              title="Voir l'historique des versions">v3.1</button>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -471,11 +513,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.0';
+const APP_VERSION = 'v3.1';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.1', txt:"Nouvelle section « Demander à Gemini » : on pose une question libre sur le lieu affiché (ou on choisit une suggestion : histoire, que voir, anecdotes, spécialités, balades) et Gemini répond, en gardant le fil de la conversation pour les questions suivantes. Le contexte envoyé contient les coordonnées, l'adresse relevée et le titre de l'article Wikipédia le plus proche. La clé API Gemini se saisit dans la section et reste dans ce navigateur (localStorage, étiquette « gemini_api_key » partagée avec les autres applis du domaine)." },
   { num:'v3.0', txt:"Correction du doublon de la section Street View : deux affichages de lieu qui se chevauchaient (celui restauré au chargement et celui du nouveau relevé GPS) ajoutaient chacun leurs sections. Seul le relevé le plus récent s'affiche désormais. Street View indique aussi quand aucune panoramique n'existe près du point, au lieu d'un cadre noir. Le numéro de version devient un bouton qui ouvre cet historique." },
   { num:'v2.9 et antérieures', txt:"Versions précédentes (historique non consigné) : géolocalisation, adresse Nominatim, photos Wikimedia, article Wikipédia, carte Leaflet avec appui long, Street View 360°, historique des visites synchronisé sur GitHub, journal technique." }
 ];
@@ -697,6 +740,13 @@ async function showPlace(lat, lon, opts){
 
   const addrRes = results[0];
   const adresse = (addrRes.status === 'fulfilled' && addrRes.value) ? addrRes.value : '';
+
+  // Titre de l'article Wikipédia le plus proche : sert de contexte à Gemini
+  const wikiRes = results[2];
+  const wiki = (wikiRes.status === 'fulfilled' && wikiRes.value) ? wikiRes.value : null;
+
+  // Section « Demander à Gemini » (repliée par défaut, aucun appel tant qu'on ne pose pas de question)
+  renderGemini(lat, lon, { adresse, wiki });
 
   // Vue Street View (repliée par défaut, chargée seulement si on l'ouvre), puis coordonnées
   renderStreetView(lat, lon);
@@ -1525,7 +1575,7 @@ async function lookupWikipedia(lat, lon){
           <a class="btn2 btn-slate" href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
         </div>
       `;
-      return;
+      return null;
     }
     const title = hit.title;
     const ext = `https://fr.wikipedia.org/w/api.php?action=query&prop=extracts`
@@ -1546,6 +1596,8 @@ async function lookupWikipedia(lat, lon){
         <a class="btn2 btn-slate" href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
       </div>
     `;
+    // Renvoyé à showPlace() : sert de contexte à la section « Demander à Gemini »
+    return { titre: title, resume: summary };
   }catch(e){
     el.innerHTML = `
       <h2>À propos du lieu</h2>
@@ -1554,7 +1606,273 @@ async function lookupWikipedia(lat, lon){
         <a class="btn2 btn-slate" href="${gmapsLink}" target="_blank" rel="noopener">Voir sur Google Maps →</a>
       </div>
     `;
+    return null;
   }
+}
+
+// =====================================================================
+//  Demander à Gemini — questions libres sur le lieu affiché
+// =====================================================================
+// Le navigateur appelle directement l'API Gemini (aucun serveur intermédiaire).
+// La clé est rangée sous l'étiquette commune « gemini_api_key » : toutes les
+// applications servies depuis le même domaine partagent le même localStorage,
+// la clé n'est donc à saisir qu'une fois par appareil. Elle n'est jamais écrite
+// dans la page publiée ni dans les fichiers synchronisés sur GitHub.
+const CLE_GEMINI_LS = 'gemini_api_key';
+
+// Le premier modèle disponible pour la clé est utilisé ; les suivants ne servent
+// que de repli si le précédent est inconnu de l'API (erreur 404).
+const MODELES_GEMINI = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+// Questions toutes prêtes (bouton = libellé court, envoi = question complète)
+const SUGGESTIONS_GEMINI = [
+  { label:'Que voir ici ?', q:"Que peut-on voir ou visiter à cet endroit et dans un rayon de quelques kilomètres ?" },
+  { label:'Histoire',       q:"Raconte-moi l'histoire de ce lieu : origines, grandes étapes, personnages marquants." },
+  { label:'Anecdotes',      q:"Quelles anecdotes ou curiosités peu connues se rattachent à cet endroit ?" },
+  { label:'Spécialités',    q:"Quelles sont les spécialités culinaires et les produits locaux de cet endroit ?" },
+  { label:'Balades',        q:"Quelles balades ou randonnées peut-on faire au départ d'ici ?" },
+  { label:'Architecture',   q:"Que remarque-t-on dans l'architecture et le paysage typiques de cet endroit ?" }
+];
+
+function cleGemini(){
+  try{ return (localStorage.getItem(CLE_GEMINI_LS) || '').trim(); }catch(e){ return ''; }
+}
+function setCleGemini(v){
+  try{
+    if(v) localStorage.setItem(CLE_GEMINI_LS, v);
+    else  localStorage.removeItem(CLE_GEMINI_LS);
+  }catch(e){}
+}
+
+// Un appel à un modèle précis. Les erreurs portent le code HTTP dans .statut
+// pour que l'appelant sache s'il doit essayer le modèle suivant (404) ou s'arrêter.
+async function appelGemini(modele, contents, instruction, cle){
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/'
+            + modele + ':generateContent';
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cle },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: instruction }] },
+      contents: contents,
+      generationConfig: { temperature: 0.4, maxOutputTokens: 1400 }
+    })
+  });
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok){
+    const err = new Error((d && d.error && d.error.message) ? d.error.message : ('HTTP ' + r.status));
+    err.statut = r.status;
+    throw err;
+  }
+  const cand = (d.candidates && d.candidates[0]) || {};
+  const parts = (cand.content && cand.content.parts) || [];
+  const texte = parts.map(p => p.text || '').join('').trim();
+  if(!texte) throw new Error('réponse vide (' + (cand.finishReason || 'sans raison indiquée') + ')');
+  return texte;
+}
+
+async function demanderGemini(contents, instruction){
+  const cle = cleGemini();
+  if(!cle) throw new Error('aucune clé API Gemini enregistrée sur cet appareil');
+  let derniere = null;
+  for(const modele of MODELES_GEMINI){
+    try{
+      const texte = await appelGemini(modele, contents, instruction, cle);
+      logMsg('Gemini : réponse reçue', { modele, longueur: texte.length });
+      return { texte, modele };
+    }catch(e){
+      derniere = e;
+      if(e.statut === 404){            // modèle inconnu pour cette clé : on tente le suivant
+        logMsg('Gemini : modèle indisponible, essai du suivant', { modele });
+        continue;
+      }
+      logMsg('Gemini : échec de la requête', { modele, erreur: e.message, statut: e.statut });
+      throw e;
+    }
+  }
+  throw derniere || new Error('aucun modèle disponible');
+}
+
+// Mise en forme minimale du Markdown renvoyé par Gemini (gras, italique,
+// titres, listes à puces). Le texte est échappé AVANT toute conversion :
+// rien de ce que renvoie l'API ne peut injecter de HTML dans la page.
+function formaterTexteGemini(t){
+  const lignes = esc(t).split('\n');
+  let html = '', dansListe = false;
+  for(const brute of lignes){
+    const ligne = brute
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    const puce  = ligne.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)$/);
+    const titre = ligne.match(/^\s*#{1,4}\s+(.*)$/);
+    if(puce){
+      if(!dansListe){ html += '<ul>'; dansListe = true; }
+      html += '<li>' + puce[1] + '</li>';
+      continue;
+    }
+    if(dansListe){ html += '</ul>'; dansListe = false; }
+    if(titre){ html += '<h3 class="gem-h">' + titre[1] + '</h3>'; continue; }
+    if(ligne.trim()) html += '<p>' + ligne + '</p>';
+  }
+  if(dansListe) html += '</ul>';
+  return html || '<p class="muted">Réponse vide.</p>';
+}
+
+// Section « Demander à Gemini » : une par affichage de lieu, repliée par défaut.
+// Aucun appel réseau n'est fait tant qu'aucune question n'est posée.
+function renderGemini(lat, lon, ctx){
+  const c = ctx || {};
+  const el = document.createElement('details');
+  el.className = 'card';
+  el.innerHTML =
+    '<summary><h2>Demander à Gemini</h2></summary>' +
+    '<div class="gem-body">' +
+      '<p class="muted gem-intro">Pose une question libre sur ce lieu. Gemini reçoit les coordonnées, ' +
+        "l'adresse relevée et le titre de l'article Wikipédia le plus proche, et garde le fil de la conversation.</p>" +
+      '<div class="gem-chips"></div>' +
+      '<textarea class="gem-q" rows="2" placeholder="Ta question sur ce lieu…"></textarea>' +
+      '<div class="gem-actions">' +
+        '<button type="button" class="btn2 btn-blue gem-send">Demander</button>' +
+        '<button type="button" class="btn2 btn-slate gem-key">Clé API</button>' +
+      '</div>' +
+      '<div class="gem-keyrow" hidden>' +
+        '<input class="gh-input gem-keyinput" type="password" autocomplete="off" placeholder="Clé API Gemini (AIza…)">' +
+        '<button type="button" class="gh-save gem-keysave">Enregistrer</button>' +
+      '</div>' +
+      '<p class="gem-status"></p>' +
+      '<div class="gem-thread"></div>' +
+      '<button type="button" class="btn2 btn-slate gem-reset" hidden>Nouvelle conversation</button>' +
+    '</div>';
+
+  const chips    = el.querySelector('.gem-chips');
+  const champ    = el.querySelector('.gem-q');
+  const btnSend  = el.querySelector('.gem-send');
+  const btnKey   = el.querySelector('.gem-key');
+  const rangeeKey= el.querySelector('.gem-keyrow');
+  const champKey = el.querySelector('.gem-keyinput');
+  const btnKeySave = el.querySelector('.gem-keysave');
+  const zoneStatut = el.querySelector('.gem-status');
+  const fil      = el.querySelector('.gem-thread');
+  const btnReset = el.querySelector('.gem-reset');
+
+  // Contexte du lieu, envoyé en consigne système à chaque requête
+  const infos = ['Coordonnées GPS : ' + (+lat).toFixed(6) + ', ' + (+lon).toFixed(6) + '.'];
+  if(c.adresse) infos.push('Adresse relevée sur place : ' + c.adresse + '.');
+  if(c.wiki && c.wiki.titre) infos.push('Article Wikipédia le plus proche : « ' + c.wiki.titre + ' ».');
+  const INSTRUCTION =
+    "Tu es un guide de voyage francophone qui accompagne quelqu'un se trouvant physiquement sur place.\n" +
+    "Le lieu est le suivant :\n" + infos.join('\n') + "\n" +
+    "Réponds en français, de façon concrète et vivante, sans jargon ni formules d'introduction inutiles. " +
+    "Structure les réponses un peu longues en courts paragraphes ou en listes à puces. " +
+    "Si tu n'es pas sûr d'un fait, dis-le clairement plutôt que d'inventer, et distingue bien ce qui concerne " +
+    "le point exact des coordonnées de ce qui concerne la commune ou la région alentour.";
+
+  const echanges = [];    // historique de la conversation au format attendu par l'API
+  let enCours = false;
+
+  function statut(msg){ zoneStatut.textContent = msg || ''; }
+
+  function majBoutonCle(){
+    btnKey.textContent = cleGemini() ? 'Changer la clé' : 'Clé API';
+  }
+  majBoutonCle();
+
+  function ouvrirCle(){
+    rangeeKey.hidden = false;
+    champKey.value = '';
+    champKey.focus();
+  }
+
+  btnKey.addEventListener('click', () => {
+    if(rangeeKey.hidden) ouvrirCle();
+    else rangeeKey.hidden = true;
+  });
+  btnKeySave.addEventListener('click', () => {
+    const v = champKey.value.trim();
+    if(!v){ statut('Aucune clé saisie.'); return; }
+    setCleGemini(v);
+    champKey.value = '';
+    rangeeKey.hidden = true;
+    majBoutonCle();
+    statut('Clé enregistrée sur cet appareil.');
+    logMsg('Gemini : clé API enregistrée');
+  });
+
+  // Boutons de suggestion : remplissent le champ et envoient directement
+  for(const s of SUGGESTIONS_GEMINI){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'gem-chip';
+    b.textContent = s.label;
+    b.addEventListener('click', () => { champ.value = s.q; envoyer(); });
+    chips.appendChild(b);
+  }
+
+  function ajouterBulle(classe, html){
+    const d = document.createElement('div');
+    d.className = classe;
+    d.innerHTML = html;
+    fil.appendChild(d);
+    return d;
+  }
+
+  async function envoyer(){
+    if(enCours) return;
+    const q = champ.value.trim();
+    if(!q){ statut("Écris d'abord une question."); champ.focus(); return; }
+    if(!cleGemini()){
+      statut('Enregistre d’abord ta clé API Gemini (bouton « Clé API »).');
+      ouvrirCle();
+      return;
+    }
+
+    enCours = true;
+    btnSend.disabled = true;
+    btnSend.textContent = 'Gemini réfléchit…';
+    statut('');
+    champ.value = '';
+
+    ajouterBulle('gem-q-bubble', esc(q));
+    const bulleR = ajouterBulle('gem-r-bubble', '<p class="muted">Gemini réfléchit…</p>');
+    bulleR.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+    echanges.push({ role: 'user', parts: [{ text: q }] });
+    logMsg('Gemini : question envoyée', { question: q.slice(0, 120), tour: echanges.length });
+
+    try{
+      const rep = await demanderGemini(echanges, INSTRUCTION);
+      echanges.push({ role: 'model', parts: [{ text: rep.texte }] });
+      bulleR.innerHTML = formaterTexteGemini(rep.texte) +
+        '<p class="gem-modele">' + esc(rep.modele) + '</p>';
+    }catch(e){
+      echanges.pop();                   // la question n'a pas abouti : elle sort du fil de discussion
+      bulleR.innerHTML = '<p class="gem-err">Échec de la requête : ' + esc(e.message) + '</p>';
+      if(e.statut === 400 || e.statut === 403){
+        statut('Clé refusée ou API « Generative Language » non activée pour cette clé.');
+      }
+    }finally{
+      enCours = false;
+      btnSend.disabled = false;
+      btnSend.textContent = 'Demander';
+      btnReset.hidden = false;
+    }
+  }
+
+  btnSend.addEventListener('click', envoyer);
+  // Entrée = envoyer, Maj+Entrée = passer à la ligne
+  champ.addEventListener('keydown', (ev) => {
+    if(ev.key === 'Enter' && !ev.shiftKey){ ev.preventDefault(); envoyer(); }
+  });
+
+  btnReset.addEventListener('click', () => {
+    echanges.length = 0;
+    fil.innerHTML = '';
+    btnReset.hidden = true;
+    statut('Conversation effacée.');
+  });
+
+  result.appendChild(el);
+  return el;
 }
 
 // Au lancement : réaffiche la dernière géolocalisation mémorisée + le journal
