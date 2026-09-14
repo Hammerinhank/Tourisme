@@ -545,7 +545,7 @@
       <p class="eyebrow">Relevé de position</p>
       <div class="head-tools">
         <button class="version" id="app-version" type="button"
-                title="Voir l'historique des versions">v3.7</button>
+                title="Voir l'historique des versions">v3.8</button>
         <button class="gear" id="set-btn" type="button"
                 title="Réglages" aria-label="Réglages">⚙</button>
       </div>
@@ -731,11 +731,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.7';
+const APP_VERSION = 'v3.8';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.8', txt:"Correction d'une fausse alerte du test de connexion GitHub : le compte du token était comparé au propriétaire du dépôt en tenant compte de la casse, si bien que « Hammerinhank » et « hammerinhank » — le même compte, GitHub ignorant la casse des noms d'utilisateur — déclenchaient un avertissement « mauvais compte GitHub ». La comparaison ignore désormais la casse." },
   { num:'v3.7', txt:"Réglages GitHub : le token enregistré est maintenant relisible (bouton œil pour l'afficher en clair) et un bouton « Tester la connexion » vérifie tout l'enchaînement — forme du token, validité et compte associé, quota d'appels, accès au dépôt, droit d'écriture, existence de la branche, présence de visites.json, lisibilité du fichier publié. Chaque échec est expliqué (ce qui ne va pas) et accompagné de la marche à suivre pour le corriger, avec les liens et les réglages exacts à changer côté GitHub." },
   { num:'v3.6', txt:"Les trois boutons techniques du bas de page (Effacer, Connexion GitHub, Journal) disparaissent : ils sont regroupés dans un panneau « Réglages » ouvert par une roue dentée discrète en haut à droite. La sauvegarde GitHub y est expliquée (à quoi elle sert, ce qu'on perd sans elle) et son état est affiché. Le journal technique s'y affiche directement dans sa fenêtre de texte, sans bouton à actionner. « Effacer » devient « Oublier le lieu affiché », avec la précision qu'il ne touche pas aux lieux consultés — ceux-là se suppriment un par un dans leur section." },
   { num:'v3.5', txt:"L'historique n'est plus un bouton qui montre ou masque une liste : c'est une section repliable « Lieux consultés », du même modèle que les autres. Une fois dépliée, elle s'ouvre sur une carte qui situe tous les lieux enregistrés, chacun marqué d'un repère numéroté correspondant au numéro affiché devant l'élément de la liste (le plus récent en rouge). Toucher un repère ouvre une fenêtre de confirmation rappelant date, adresse et coordonnées, avec un bouton « Revoir » qui recharge le lieu comme le bouton « Revoir » de la liste. La carte n'est construite qu'à l'ouverture de la section et se recadre sur l'ensemble des lieux." },
@@ -1388,7 +1389,10 @@ async function testerGitHub(){
   }
   const compte = (rep.d && rep.d.login) || '?';
   lignes.push(diagLigne('ok', 'Token valide — connecté au compte <strong>' + esc(compte) + '</strong>.'));
-  if(compte !== GH_OWNER){
+  // GitHub ne distingue pas la casse dans les noms de compte : « Hammerinhank » et
+  // « hammerinhank » sont le même utilisateur. La comparaison doit l'ignorer, sinon
+  // on signale un « mauvais compte » là où tout va bien.
+  if(compte.toLowerCase() !== GH_OWNER.toLowerCase()){
     lignes.push(diagLigne('warn', 'Ce token appartient à <strong>' + esc(compte)
       + '</strong>, alors que le dépôt visé est celui de <strong>' + GH_OWNER + '</strong>.',
       'Ça peut fonctionner si ce compte a un accès en écriture au dépôt, mais le plus souvent '
