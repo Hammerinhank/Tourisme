@@ -90,8 +90,6 @@
   .sub{color:var(--ink-soft);margin:10px 0 0;font-size:15px}
 
   .controls{margin:26px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
-  .controls.bottom{margin-top:32px;border-top:1px solid var(--line);padding-top:22px}
-  .controls.bottom > button{flex:1 1 0;min-width:0}
   .locate{
     display:inline-flex;align-items:center;gap:12px;
     font:600 17px/1 var(--sans);
@@ -124,11 +122,6 @@
     box-shadow:0 2px 0 var(--brass-dark)!important;filter:none!important;
   }
 
-  .gh-panel{
-    margin:14px 0 0;padding:16px;border:1px solid var(--line);
-    border-radius:12px;background:var(--card);
-  }
-  .gh-panel[hidden]{display:none}
   .gh-label{display:block;font-size:13px;color:var(--ink-soft);margin-bottom:8px}
   .gh-row{display:flex;gap:8px;flex-wrap:wrap}
   .gh-input{
@@ -150,7 +143,6 @@
     cursor:pointer;padding:0;text-decoration:underline;
   }
   .linklike[hidden]{display:none}
-  .log-row{border-top:1px solid var(--line);padding-top:22px}
 
   .log-view{
     position:fixed;inset:0;z-index:1000;
@@ -170,6 +162,40 @@
   }
   .log-actions{display:flex;gap:8px;flex-wrap:wrap}
   .log-actions .btn2{flex:1 1 0;min-width:0}
+
+  /* Roue dentée de l'en-tête : discrète, elle ouvre le panneau des réglages */
+  .head-tools{display:flex;align-items:center;gap:8px}
+  .gear{
+    background:none;border:1px solid var(--line);border-radius:50%;
+    width:32px;height:32px;padding:0;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    font-size:15px;line-height:1;color:var(--ink-soft);
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .gear:hover{color:var(--contour-dark);border-color:var(--contour)}
+  .gear:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+
+  /* Panneau des réglages : plein écran, contenu défilant, bouton Retour fixe en bas */
+  .set-view{gap:12px}
+  .set-scroll{
+    flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    display:flex;flex-direction:column;gap:22px;
+  }
+  .set-block{
+    border:1px solid var(--line);border-radius:14px;
+    background:var(--card);padding:16px 18px;
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .set-h{
+    margin:0;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--contour-dark);font-family:var(--mono);font-weight:600;
+  }
+  .set-txt{margin:0;font-size:14px;line-height:1.55;color:var(--ink)}
+  .set-etat{margin:0;font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+  .set-block .log-textarea{flex:none;height:32vh;min-height:160px}
+  .set-block .gh-label{margin-bottom:0}
+  .set-block .gh-note{margin:0}
+  .set-bottom{flex:none}
 
   .locate:hover{background:var(--contour-dark)}
   .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
@@ -490,8 +516,12 @@
   <header>
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
-      <button class="version" id="app-version" type="button"
-              title="Voir l'historique des versions">v3.5</button>
+      <div class="head-tools">
+        <button class="version" id="app-version" type="button"
+                title="Voir l'historique des versions">v3.6</button>
+        <button class="gear" id="set-btn" type="button"
+                title="Réglages" aria-label="Réglages">⚙</button>
+      </div>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -522,37 +552,64 @@
       <p id="history-empty" class="muted" hidden>Aucun lieu enregistré pour l'instant.</p>
     </div>
   </details>
-
-  <div class="controls bottom">
-    <button id="clear" class="btn2 btn-red" type="button">Effacer</button>
-    <button id="gh-btn" class="btn2 btn-slate" type="button">Connexion GitHub</button>
-  </div>
-
-  <div id="gh-panel" class="gh-panel" hidden>
-    <label class="gh-label" for="gh-token">Token GitHub — accès en écriture au dépôt Tourisme</label>
-    <div class="gh-row">
-      <input id="gh-token" class="gh-input" type="password" autocomplete="off" placeholder="github_pat_… ou ghp_…">
-      <button id="gh-save" class="gh-save" type="button">Enregistrer</button>
-    </div>
-    <p class="gh-note">
-      Le token n'est stocké que dans ce navigateur (localStorage) et n'apparaît jamais dans la page publiée.
-      Utilise de préférence un token « fine-grained » limité au dépôt Tourisme, permission Contents : Read and write.
-      <button id="gh-forget" class="linklike" type="button" hidden>Déconnecter</button>
-    </p>
-  </div>
-
-  <div class="controls bottom log-row">
-    <button id="log-btn" class="btn2 btn-slate" type="button">Journal (log)</button>
-  </div>
 </div>
 
-<div id="log-view" class="log-view" hidden>
-  <p class="eyebrow">Journal technique</p>
-  <textarea id="log-textarea" class="log-textarea" readonly spellcheck="false"></textarea>
-  <div class="log-actions">
-    <button id="log-copy" class="btn2 btn-blue" type="button">Copier</button>
-    <button id="log-clear" class="btn2 btn-red" type="button">Vider</button>
-    <button id="log-back" class="btn2 btn-slate" type="button">Retour</button>
+<!-- Panneau « Réglages », ouvert par la roue dentée de l'en-tête : tout ce qui
+     est technique (sauvegarde GitHub, journal, mémoire) y est regroupé, hors
+     du chemin normal de l'utilisation. -->
+<div id="set-view" class="log-view set-view" hidden>
+  <div class="set-scroll">
+    <p class="eyebrow">Réglages</p>
+
+    <section class="set-block">
+      <h3 class="set-h">Sauvegarde en ligne (GitHub)</h3>
+      <p class="set-txt">
+        Les lieux consultés sont toujours gardés dans ce navigateur. En te connectant à GitHub,
+        la même liste est recopiée dans le fichier <strong>visites.json</strong> du dépôt Tourisme
+        à chaque nouveau relevé : elle survit à un effacement du navigateur et se retrouve sur
+        tes autres appareils. Sans connexion, l'application fonctionne normalement, mais la liste
+        ne vit que sur cet appareil.
+      </p>
+      <p class="set-etat">État : <strong id="gh-state">non connecté</strong></p>
+      <label class="gh-label" for="gh-token">Token GitHub — accès en écriture au dépôt Tourisme</label>
+      <div class="gh-row">
+        <input id="gh-token" class="gh-input" type="password" autocomplete="off" placeholder="github_pat_… ou ghp_…">
+        <button id="gh-save" class="gh-save" type="button">Enregistrer</button>
+      </div>
+      <p class="gh-note">
+        Le token n'est stocké que dans ce navigateur (localStorage) et n'apparaît jamais dans la page publiée.
+        Utilise de préférence un token « fine-grained » limité au dépôt Tourisme, permission Contents : Read and write.
+        <button id="gh-forget" class="linklike" type="button" hidden>Déconnecter</button>
+      </p>
+    </section>
+
+    <section class="set-block">
+      <h3 class="set-h">Journal technique</h3>
+      <p class="set-txt">
+        Trace des étapes et des erreurs, utile quand quelque chose ne marche pas sans qu'on
+        puisse ouvrir la console du navigateur. Le contenu se purge tout seul après deux jours sans usage.
+      </p>
+      <textarea id="log-textarea" class="log-textarea" readonly spellcheck="false"></textarea>
+      <div class="log-actions">
+        <button id="log-copy" class="btn2 btn-blue" type="button">Copier</button>
+        <button id="log-clear" class="btn2 btn-red" type="button">Vider</button>
+      </div>
+    </section>
+
+    <section class="set-block">
+      <h3 class="set-h">Mémoire de l'application</h3>
+      <p class="set-txt">
+        Au lancement, l'application réaffiche le dernier lieu consulté. Ce bouton efface
+        uniquement ce rappel : la page s'ouvre vierge au prochain lancement.
+        Il ne touche pas aux lieux consultés — ceux-là se suppriment un par un dans la
+        section « Lieux consultés ».
+      </p>
+      <button id="clear" class="btn2 btn-red" type="button">Oublier le lieu affiché</button>
+    </section>
+  </div>
+
+  <div class="log-actions set-bottom">
+    <button id="set-back" class="btn2 btn-slate" type="button">Retour</button>
   </div>
 </div>
 
@@ -618,7 +675,7 @@ function logMsg(msg, data){
   appLog.push(line);
   if(appLog.length > LOG_MAX_ENTRIES) appLog = appLog.slice(-LOG_MAX_ENTRIES);
   try{ localStorage.setItem(LOG_KEY, JSON.stringify(appLog)); }catch(e){}
-  const view = document.getElementById('log-view');
+  const view = document.getElementById('set-view');
   const ta   = document.getElementById('log-textarea');
   if(ta && view && !view.hidden){
     ta.value = appLog.join('\n');
@@ -642,11 +699,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.5';
+const APP_VERSION = 'v3.6';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.6', txt:"Les trois boutons techniques du bas de page (Effacer, Connexion GitHub, Journal) disparaissent : ils sont regroupés dans un panneau « Réglages » ouvert par une roue dentée discrète en haut à droite. La sauvegarde GitHub y est expliquée (à quoi elle sert, ce qu'on perd sans elle) et son état est affiché. Le journal technique s'y affiche directement dans sa fenêtre de texte, sans bouton à actionner. « Effacer » devient « Oublier le lieu affiché », avec la précision qu'il ne touche pas aux lieux consultés — ceux-là se suppriment un par un dans leur section." },
   { num:'v3.5', txt:"L'historique n'est plus un bouton qui montre ou masque une liste : c'est une section repliable « Lieux consultés », du même modèle que les autres. Une fois dépliée, elle s'ouvre sur une carte qui situe tous les lieux enregistrés, chacun marqué d'un repère numéroté correspondant au numéro affiché devant l'élément de la liste (le plus récent en rouge). Toucher un repère ouvre une fenêtre de confirmation rappelant date, adresse et coordonnées, avec un bouton « Revoir » qui recharge le lieu comme le bouton « Revoir » de la liste. La carte n'est construite qu'à l'ouverture de la section et se recadre sur l'ensemble des lieux." },
   { num:'v3.4', txt:"Nouveau sujet « Photos emblématiques » dans la section Gemini : Gemini ne donne que les sujets à photographier et leur commentaire, au format JSON ; l'application va ensuite chercher elle-même la vraie image de chaque sujet sur Wikipédia puis sur Wikimedia Commons — les URL d'images fournies directement par un modèle sont souvent inventées. Galerie affichée avec le commentaire de Gemini sous chaque photo, décompte de progression pendant la recherche (traités / restants), sujet sans image remplacé par un lien de recherche, image morte masquée sans perdre son commentaire. La galerie est mémorisée comme les autres sujets (bouton vert)." },
   { num:'v3.3', txt:"Les réponses de Gemini sont conservées tant qu'on ne change pas de lieu : chaque sujet garde la sienne, son bouton s'entoure de vert, et le rouvrir réaffiche la réponse sans interroger Gemini à nouveau. Une question libre crée son propre bouton, on passe donc d'une conversation à l'autre librement. Le bouton « Nouvelle conversation » disparaît, remplacé par « Poursuivre cette conversation » quand on veut enchaîner dans le même sujet. La mémoire (localStorage) ne contient qu'un lieu à la fois et peut être vidée depuis Paramétrage." },
@@ -690,17 +748,15 @@ const GH_BRANCH = 'main';            // adapte si GitHub Pages sert une autre br
 const GH_TOKEN_KEY = 'ou-suis-je:gh-token';
 
 const histSection = document.getElementById('history');
-const ghBtn       = document.getElementById('gh-btn');
-const ghPanel     = document.getElementById('gh-panel');
+const setBtn      = document.getElementById('set-btn');
+const setView     = document.getElementById('set-view');
+const ghState     = document.getElementById('gh-state');
 const ghInput     = document.getElementById('gh-token');
 const ghForget    = document.getElementById('gh-forget');
 
-const logBtn   = document.getElementById('log-btn');
-const logView  = document.getElementById('log-view');
 const logTa    = document.getElementById('log-textarea');
 const logCopy  = document.getElementById('log-copy');
 const logClear = document.getElementById('log-clear');
-const logBack  = document.getElementById('log-back');
 
 // Affiche un message sur le bouton pendant 2 s (couleur laiton), puis restaure son libellé
 function flash(button, msg, restore){
@@ -720,9 +776,25 @@ clearBtn.addEventListener('click', () => {
   try{ localStorage.removeItem(STORE_KEY); }catch(e){}
   result.innerHTML = '';
   label.textContent = 'Me localiser';
-  setStatus('Mémoire effacée.');
-  flash(clearBtn, 'Effacé ✓', () => { clearBtn.textContent = 'Effacer'; updateClearButton(); });
+  setStatus('Rappel du dernier lieu effacé.');
+  flash(clearBtn, 'Oublié ✓', () => {
+    clearBtn.textContent = 'Oublier le lieu affiché';
+    updateClearButton();
+  });
 });
+
+// --- Panneau des réglages (roue dentée) ---
+// Le journal s'affiche d'emblée dans sa fenêtre de texte : plus de bouton à
+// actionner pour le consulter.
+setBtn.addEventListener('click', () => {
+  logTa.value = appLog.join('\n');
+  updateGhUI();
+  updateClearButton();
+  setView.hidden = false;
+  requestAnimationFrame(() => { logTa.scrollTop = logTa.scrollHeight; });
+  logMsg('Panneau des réglages ouvert');
+});
+document.getElementById('set-back').addEventListener('click', () => { setView.hidden = true; });
 
 // La carte d'historique n'est construite qu'à l'ouverture de la section : Leaflet
 // a besoin d'un conteneur de taille connue, ce qui n'est pas le cas tant que le
@@ -732,19 +804,11 @@ histSection.addEventListener('toggle', () => {
   if(histSection.open) renderHistMap(loadLocalHistory());
 });
 
-ghBtn.addEventListener('click', () => {
-  ghPanel.hidden = !ghPanel.hidden;
-  const opened = !ghPanel.hidden;
-  if(opened){ ghInput.value = ''; ghInput.focus(); }
-  flash(ghBtn, opened ? 'Panneau ouvert' : 'Panneau fermé', () => updateGhUI());
-});
 document.getElementById('gh-save').addEventListener('click', async () => {
   const t = ghInput.value.trim();
   if(!t){ setStatus('Aucun token saisi.', true); return; }
   setToken(t);
   ghInput.value = '';
-  ghPanel.hidden = true;
-  flash(ghBtn, 'Connecté ✓', () => updateGhUI());
   setStatus('Token enregistré. Synchronisation…');
   await syncToGitHub(loadLocalHistory());
 });
@@ -754,12 +818,6 @@ ghForget.addEventListener('click', () => {
   setStatus('Token GitHub supprimé de ce navigateur.');
 });
 
-logBtn.addEventListener('click', () => {
-  logTa.value = appLog.join('\n');
-  logView.hidden = false;
-  requestAnimationFrame(() => { logTa.scrollTop = logTa.scrollHeight; });
-});
-logBack.addEventListener('click', () => { logView.hidden = true; });
 logClear.addEventListener('click', () => {
   appLog = [];
   try{ localStorage.removeItem(LOG_KEY); }catch(e){}
@@ -1187,7 +1245,7 @@ function setToken(t){
 }
 function updateGhUI(){
   const has = !!getToken();
-  ghBtn.textContent = has ? 'GitHub ✓' : 'Connexion GitHub';
+  if(ghState) ghState.textContent = has ? 'connecté — sauvegarde active' : 'non connecté';
   ghForget.hidden = !has;
 }
 function ghHeaders(){
