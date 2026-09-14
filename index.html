@@ -91,7 +91,6 @@
 
   .controls{margin:26px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
   .controls.bottom{margin-top:32px;border-top:1px solid var(--line);padding-top:22px}
-  .controls.hist-row > button{flex:1 1 100%;width:100%}
   .controls.bottom > button{flex:1 1 0;min-width:0}
   .locate{
     display:inline-flex;align-items:center;gap:12px;
@@ -406,25 +405,44 @@
   .gem-check input{width:20px;height:20px}
   .gem-note{margin:0;font-size:12px;line-height:1.5;color:var(--ink-soft)}
 
-  .history{margin-top:26px;border-top:1px solid var(--line);padding-top:20px}
-  .history[hidden]{display:none}
-  .history-head{
-    display:flex;justify-content:space-between;align-items:baseline;
-    gap:12px;flex-wrap:wrap;
+  /* L'historique est une section repliable, du même modèle que les autres cartes */
+  .history{margin-top:22px}
+  .history-body{display:flex;flex-direction:column;gap:0}
+  .hist-map{
+    border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    aspect-ratio:16/11;background:#dfe6ea;
   }
-  .history-head h2{
-    margin:0;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--contour-dark);font-family:var(--mono);font-weight:600;
+  .hist-map-note{margin:10px 0 0;font-size:13px}
+  /* Repère numéroté : même numéro que dans la liste juste en dessous */
+  .hist-pin{
+    display:flex;align-items:center;justify-content:center;
+    width:28px;height:28px;border-radius:50% 50% 50% 4px;
+    transform:rotate(-45deg);
+    background:var(--contour);border:2px solid #fff;
+    box-shadow:0 2px 6px rgba(16,42,48,.35);
+    color:#fff;font:700 13px/1 var(--sans);
+  }
+  .hist-pin span{transform:rotate(45deg)}
+  .hist-pin.recent{background:var(--signal)}
+  .history-head{
+    display:flex;justify-content:flex-end;align-items:baseline;
+    gap:12px;flex-wrap:wrap;margin-top:14px;
   }
   .dl{font-family:var(--mono);font-size:12px;color:var(--contour-dark)}
-  .history-list{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:10px}
+  .history-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:10px}
   .history-list li{
-    background:var(--card);border:1px solid var(--line);
+    background:var(--paper);border:1px solid var(--line);
     border-radius:12px;padding:12px 14px;
     display:flex;justify-content:space-between;align-items:center;
     gap:12px;flex-wrap:wrap;
   }
-  .hist-info{min-width:0}
+  /* Numéro de l'élément, identique à celui porté par son repère sur la carte */
+  .hist-num{
+    flex-shrink:0;width:26px;height:26px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--contour);color:#fff;font:700 12px/1 var(--mono);
+  }
+  .hist-info{min-width:0;flex:1 1 140px}
   .hist-actions{display:flex;gap:8px;flex-shrink:0}
   .hist-btn{
     font:600 13px/1 var(--sans);color:#fff;border:none;border-radius:9px;
@@ -440,6 +458,28 @@
   .hist-addr{font-size:15px;margin:2px 0 0}
   .hist-coords{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin:3px 0 0}
 
+  /* Boîte de dialogue « Revoir ce lieu ? » — fenêtre maison plutôt que confirm()
+     natif, masqué par le clavier et impossible à styler sur iOS. */
+  .ask-view{
+    position:fixed;inset:0;z-index:10000;
+    background:rgba(16,42,48,.55);
+    display:flex;align-items:center;justify-content:center;
+    padding:18px;
+  }
+  .ask-view[hidden]{display:none}
+  .ask-card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:20px 22px;max-width:420px;width:100%;
+    box-shadow:0 18px 40px rgba(16,42,48,.3);
+  }
+  .ask-num{
+    font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin:8px 0 0;
+  }
+  .ask-addr{font-size:17px;font-weight:700;margin:6px 0 0;line-height:1.35}
+  .ask-meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin:6px 0 0}
+  .ask-actions{display:flex;gap:10px;margin-top:18px}
+  .ask-actions .btn2{flex:1 1 0}
+
   @media (prefers-reduced-motion:reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -451,7 +491,7 @@
     <div class="eyebrow-row">
       <p class="eyebrow">Relevé de position</p>
       <button class="version" id="app-version" type="button"
-              title="Voir l'historique des versions">v3.4</button>
+              title="Voir l'historique des versions">v3.5</button>
     </div>
     <h1>Où suis-je&nbsp;?</h1>
     <p class="sub">Appuie sur le bouton pour lire ta position GPS et découvrir ce qui se trouve à cet endroit.</p>
@@ -468,18 +508,20 @@
 
   <div id="result"></div>
 
-  <div class="controls hist-row">
-    <button id="toggle-hist" class="btn2 btn-blue" type="button">Historique</button>
-  </div>
-
-  <section id="history" class="history" hidden>
-    <div class="history-head">
-      <h2>Lieux consultés</h2>
-      <a id="dl" class="dl" download="visites.json">Télécharger visites.json</a>
+  <details id="history" class="card history">
+    <summary><h2>Lieux consultés</h2></summary>
+    <div class="history-body">
+      <div id="hist-map" class="hist-map"></div>
+      <p class="muted hist-map-note" id="hist-map-note">
+        Chaque numéro repère un lieu de la liste ci-dessous. Touche-le pour le revoir.
+      </p>
+      <div class="history-head">
+        <a id="dl" class="dl" download="visites.json">Télécharger visites.json</a>
+      </div>
+      <ol id="history-list" class="history-list"></ol>
+      <p id="history-empty" class="muted" hidden>Aucun lieu enregistré pour l'instant.</p>
     </div>
-    <ol id="history-list" class="history-list"></ol>
-    <p id="history-empty" class="muted" hidden>Aucun lieu enregistré pour l'instant.</p>
-  </section>
+  </details>
 
   <div class="controls bottom">
     <button id="clear" class="btn2 btn-red" type="button">Effacer</button>
@@ -519,6 +561,19 @@
   <ul id="ver-list" class="ver-list"></ul>
   <div class="log-actions">
     <button id="ver-back" class="btn2 btn-slate" type="button">Retour</button>
+  </div>
+</div>
+
+<div id="ask-view" class="ask-view" hidden>
+  <div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="ask-title">
+    <p class="eyebrow" id="ask-title">Revoir ce lieu ?</p>
+    <p class="ask-num" id="ask-num"></p>
+    <p class="ask-addr" id="ask-addr"></p>
+    <p class="ask-meta" id="ask-meta"></p>
+    <div class="ask-actions">
+      <button id="ask-yes" class="btn2 btn-blue" type="button">Revoir</button>
+      <button id="ask-no" class="btn2 btn-slate" type="button">Annuler</button>
+    </div>
   </div>
 </div>
 
@@ -587,11 +642,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.4';
+const APP_VERSION = 'v3.5';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.5', txt:"L'historique n'est plus un bouton qui montre ou masque une liste : c'est une section repliable « Lieux consultés », du même modèle que les autres. Une fois dépliée, elle s'ouvre sur une carte qui situe tous les lieux enregistrés, chacun marqué d'un repère numéroté correspondant au numéro affiché devant l'élément de la liste (le plus récent en rouge). Toucher un repère ouvre une fenêtre de confirmation rappelant date, adresse et coordonnées, avec un bouton « Revoir » qui recharge le lieu comme le bouton « Revoir » de la liste. La carte n'est construite qu'à l'ouverture de la section et se recadre sur l'ensemble des lieux." },
   { num:'v3.4', txt:"Nouveau sujet « Photos emblématiques » dans la section Gemini : Gemini ne donne que les sujets à photographier et leur commentaire, au format JSON ; l'application va ensuite chercher elle-même la vraie image de chaque sujet sur Wikipédia puis sur Wikimedia Commons — les URL d'images fournies directement par un modèle sont souvent inventées. Galerie affichée avec le commentaire de Gemini sous chaque photo, décompte de progression pendant la recherche (traités / restants), sujet sans image remplacé par un lien de recherche, image morte masquée sans perdre son commentaire. La galerie est mémorisée comme les autres sujets (bouton vert)." },
   { num:'v3.3', txt:"Les réponses de Gemini sont conservées tant qu'on ne change pas de lieu : chaque sujet garde la sienne, son bouton s'entoure de vert, et le rouvrir réaffiche la réponse sans interroger Gemini à nouveau. Une question libre crée son propre bouton, on passe donc d'une conversation à l'autre librement. Le bouton « Nouvelle conversation » disparaît, remplacé par « Poursuivre cette conversation » quand on veut enchaîner dans le même sujet. La mémoire (localStorage) ne contient qu'un lieu à la fois et peut être vidée depuis Paramétrage." },
   { num:'v3.2', txt:"Réponses de Gemini coupées en pleine phrase : la cause n'était pas l'affichage mais la limite de longueur, épuisée par la « réflexion » interne des modèles 2.5, qui puise dans la même réserve que la réponse. Cette réflexion est désormais désactivée par défaut, la limite passe à 4 000 jetons, et une réponse qui atteint quand même la limite l'annonce clairement avec un bouton « Continuer la réponse ». Tout le technique (clé API, modèle, longueur maximale, réflexion) est regroupé dans une sous-section repliable « Paramétrage » en bas de la section Gemini." },
@@ -634,7 +690,6 @@ const GH_BRANCH = 'main';            // adapte si GitHub Pages sert une autre br
 const GH_TOKEN_KEY = 'ou-suis-je:gh-token';
 
 const histSection = document.getElementById('history');
-const toggleHist  = document.getElementById('toggle-hist');
 const ghBtn       = document.getElementById('gh-btn');
 const ghPanel     = document.getElementById('gh-panel');
 const ghInput     = document.getElementById('gh-token');
@@ -669,11 +724,12 @@ clearBtn.addEventListener('click', () => {
   flash(clearBtn, 'Effacé ✓', () => { clearBtn.textContent = 'Effacer'; updateClearButton(); });
 });
 
-toggleHist.addEventListener('click', () => {
-  histSection.hidden = !histSection.hidden;
-  const opened = !histSection.hidden;
-  flash(toggleHist, opened ? 'Historique affiché ✓' : 'Historique masqué ✓',
-        () => { toggleHist.textContent = histSection.hidden ? 'Historique' : "Masquer l'historique"; });
+// La carte d'historique n'est construite qu'à l'ouverture de la section : Leaflet
+// a besoin d'un conteneur de taille connue, ce qui n'est pas le cas tant que le
+// <details> est replié (hauteur nulle → carte grise).
+histSection.addEventListener('toggle', () => {
+  logMsg('Section historique ' + (histSection.open ? 'ouverte' : 'repliée'));
+  if(histSection.open) renderHistMap(loadLocalHistory());
 });
 
 ghBtn.addEventListener('click', () => {
@@ -964,8 +1020,13 @@ function renderHistory(list){
     empty.hidden = false;
   }else{
     empty.hidden = true;
-    for(const e of list){
+    list.forEach((e, i) => {
+      const numero = i + 1;               // même numéro que le repère sur la carte
       const li = document.createElement('li');
+
+      const num = document.createElement('div');
+      num.className = 'hist-num';
+      num.textContent = numero;
 
       const info = document.createElement('div');
       info.className = 'hist-info';
@@ -983,8 +1044,7 @@ function renderHistory(list){
       showBtn.textContent = 'Revoir';
       showBtn.addEventListener('click', () => {
         flash(showBtn, 'Chargement…', () => { showBtn.textContent = 'Revoir'; });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        showPlace(+e.lat, +e.lon, { log: false });
+        revoirLieu(e);
       });
 
       const delBtn = document.createElement('button');
@@ -1003,13 +1063,103 @@ function renderHistory(list){
 
       actions.appendChild(showBtn);
       actions.appendChild(delBtn);
+      li.appendChild(num);
       li.appendChild(info);
       li.appendChild(actions);
       ol.appendChild(li);
-    }
+    });
   }
   updateDownload(list);
+  if(histSection.open) renderHistMap(list);   // garde la carte en phase avec la liste
 }
+
+// Affiche un lieu de l'historique (sans créer de nouvelle entrée)
+function revoirLieu(e){
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  showPlace(+e.lat, +e.lon, { log: false });
+}
+
+// --- Carte de l'historique : un repère numéroté par lieu ---
+let histMap = null;
+
+function renderHistMap(list){
+  const div = document.getElementById('hist-map');
+  const note = document.getElementById('hist-map-note');
+  if(!div) return;
+
+  if(typeof L === 'undefined'){
+    div.innerHTML = '<p class="muted" style="padding:16px">Carte indisponible (bibliothèque non chargée).</p>';
+    return;
+  }
+  // Une carte Leaflet ne se redessine pas : on repart d'un conteneur neuf
+  if(histMap){
+    try{ histMap.remove(); }catch(err){}
+    histMap = null;
+  }
+  div.innerHTML = '';
+
+  if(!list.length){
+    div.innerHTML = '<p class="muted" style="padding:16px">Aucun lieu à situer pour l\'instant.</p>';
+    if(note) note.hidden = true;
+    return;
+  }
+  if(note) note.hidden = false;
+
+  const points = list
+    .map((e, i) => ({ e, num: i + 1, lat: +e.lat, lon: +e.lon }))
+    .filter(p => isFinite(p.lat) && isFinite(p.lon));
+
+  histMap = L.map(div, { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+  }).addTo(histMap);
+
+  for(const p of points){
+    const icone = L.divIcon({
+      className: '',     // pas de classe Leaflet par défaut (fond blanc parasite)
+      html: '<div class="hist-pin' + (p.num === 1 ? ' recent' : '') + '"><span>' + p.num + '</span></div>',
+      iconSize: [28, 28],
+      iconAnchor: [14, 28]
+    });
+    L.marker([p.lat, p.lon], { icon: icone, title: p.e.adresse || '' })
+      .addTo(histMap)
+      .on('click', () => demanderRevoir(p.e, p.num));
+  }
+
+  // Cadrage sur l'ensemble des lieux (ou zoom fixe s'il n'y en a qu'un)
+  if(points.length === 1){
+    histMap.setView([points[0].lat, points[0].lon], 15);
+  }else{
+    histMap.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lon])), { padding: [28, 28] });
+  }
+  setTimeout(() => { if(histMap) histMap.invalidateSize(); }, 120);
+  logMsg('Carte de l\'historique dessinée', { repères: points.length });
+}
+
+// --- Fenêtre « Revoir ce lieu ? » ouverte par un repère de la carte ---
+const askView = document.getElementById('ask-view');
+let askEntry = null;
+
+function demanderRevoir(entry, numero){
+  askEntry = entry;
+  document.getElementById('ask-num').textContent = 'Lieu n° ' + numero
+    + ' — ' + new Date(entry.date).toLocaleString('fr-FR');
+  document.getElementById('ask-addr').textContent = entry.adresse || 'Adresse inconnue';
+  document.getElementById('ask-meta').textContent =
+    (+entry.lat).toFixed(6) + ', ' + (+entry.lon).toFixed(6);
+  askView.hidden = false;
+  logMsg('Repère d\'historique touché', { numero, adresse: entry.adresse || '' });
+}
+document.getElementById('ask-yes').addEventListener('click', () => {
+  askView.hidden = true;
+  if(askEntry) revoirLieu(askEntry);
+  askEntry = null;
+});
+document.getElementById('ask-no').addEventListener('click', () => {
+  askView.hidden = true;
+  askEntry = null;
+});
 async function removeHistoryEntry(key){
   const list = loadLocalHistory().filter(e => entryKey(e) !== key);
   saveLocalHistory(list);
