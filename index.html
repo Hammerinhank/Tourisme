@@ -196,6 +196,33 @@
   .set-block .gh-label{margin-bottom:0}
   .set-block .gh-note{margin:0}
   .set-bottom{flex:none}
+  /* Bouton « œil » : affiche le token en clair pour le relire ou le corriger */
+  .gh-eye{
+    border:1px solid var(--line);background:var(--paper);border-radius:10px;
+    padding:0 14px;font-size:16px;cursor:pointer;line-height:1;
+  }
+  .gh-eye.actif{background:var(--brass);border-color:var(--brass)}
+  .gh-eye:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  .gh-testrow{margin-top:2px}
+  .gh-testrow .btn2{flex:1 1 100%}
+  /* Résultat du test de connexion : une ligne par vérification */
+  .gh-diag:empty{display:none}
+  .diag-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+  .diag{
+    display:flex;gap:10px;align-items:flex-start;
+    border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    background:var(--paper);
+  }
+  .diag.err{border-color:var(--signal)}
+  .diag.warn{border-color:var(--brass)}
+  .diag-ico{flex-shrink:0;font-size:14px;line-height:1.4}
+  .diag-txt{margin:0;font-size:14px;line-height:1.45}
+  .diag-fix{
+    margin:6px 0 0;font-size:13px;line-height:1.5;color:var(--ink-soft);
+    border-left:2px solid var(--line);padding-left:10px;
+  }
+  .diag-fix code{font-family:var(--mono);font-size:12px;background:var(--card);padding:1px 4px;border-radius:4px}
+  .diag-fix a{color:var(--contour-dark)}
 
   .locate:hover{background:var(--contour-dark)}
   .locate:active{transform:translateY(2px);box-shadow:0 0 0 var(--contour-dark)}
@@ -518,7 +545,7 @@
       <p class="eyebrow">Relevé de position</p>
       <div class="head-tools">
         <button class="version" id="app-version" type="button"
-                title="Voir l'historique des versions">v3.6</button>
+                title="Voir l'historique des versions">v3.7</button>
         <button class="gear" id="set-btn" type="button"
                 title="Réglages" aria-label="Réglages">⚙</button>
       </div>
@@ -574,8 +601,13 @@
       <label class="gh-label" for="gh-token">Token GitHub — accès en écriture au dépôt Tourisme</label>
       <div class="gh-row">
         <input id="gh-token" class="gh-input" type="password" autocomplete="off" placeholder="github_pat_… ou ghp_…">
+        <button id="gh-eye" class="gh-eye" type="button" title="Afficher le token" aria-label="Afficher le token">👁</button>
         <button id="gh-save" class="gh-save" type="button">Enregistrer</button>
       </div>
+      <div class="gh-row gh-testrow">
+        <button id="gh-test" class="btn2 btn-blue" type="button">Tester la connexion</button>
+      </div>
+      <div id="gh-diag" class="gh-diag"></div>
       <p class="gh-note">
         Le token n'est stocké que dans ce navigateur (localStorage) et n'apparaît jamais dans la page publiée.
         Utilise de préférence un token « fine-grained » limité au dépôt Tourisme, permission Contents : Read and write.
@@ -699,11 +731,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.6';
+const APP_VERSION = 'v3.7';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.7', txt:"Réglages GitHub : le token enregistré est maintenant relisible (bouton œil pour l'afficher en clair) et un bouton « Tester la connexion » vérifie tout l'enchaînement — forme du token, validité et compte associé, quota d'appels, accès au dépôt, droit d'écriture, existence de la branche, présence de visites.json, lisibilité du fichier publié. Chaque échec est expliqué (ce qui ne va pas) et accompagné de la marche à suivre pour le corriger, avec les liens et les réglages exacts à changer côté GitHub." },
   { num:'v3.6', txt:"Les trois boutons techniques du bas de page (Effacer, Connexion GitHub, Journal) disparaissent : ils sont regroupés dans un panneau « Réglages » ouvert par une roue dentée discrète en haut à droite. La sauvegarde GitHub y est expliquée (à quoi elle sert, ce qu'on perd sans elle) et son état est affiché. Le journal technique s'y affiche directement dans sa fenêtre de texte, sans bouton à actionner. « Effacer » devient « Oublier le lieu affiché », avec la précision qu'il ne touche pas aux lieux consultés — ceux-là se suppriment un par un dans leur section." },
   { num:'v3.5', txt:"L'historique n'est plus un bouton qui montre ou masque une liste : c'est une section repliable « Lieux consultés », du même modèle que les autres. Une fois dépliée, elle s'ouvre sur une carte qui situe tous les lieux enregistrés, chacun marqué d'un repère numéroté correspondant au numéro affiché devant l'élément de la liste (le plus récent en rouge). Toucher un repère ouvre une fenêtre de confirmation rappelant date, adresse et coordonnées, avec un bouton « Revoir » qui recharge le lieu comme le bouton « Revoir » de la liste. La carte n'est construite qu'à l'ouverture de la section et se recadre sur l'ensemble des lieux." },
   { num:'v3.4', txt:"Nouveau sujet « Photos emblématiques » dans la section Gemini : Gemini ne donne que les sujets à photographier et leur commentaire, au format JSON ; l'application va ensuite chercher elle-même la vraie image de chaque sujet sur Wikipédia puis sur Wikimedia Commons — les URL d'images fournies directement par un modèle sont souvent inventées. Galerie affichée avec le commentaire de Gemini sous chaque photo, décompte de progression pendant la recherche (traités / restants), sujet sans image remplacé par un lien de recherche, image morte masquée sans perdre son commentaire. La galerie est mémorisée comme les autres sujets (bouton vert)." },
@@ -752,6 +785,7 @@ const setBtn      = document.getElementById('set-btn');
 const setView     = document.getElementById('set-view');
 const ghState     = document.getElementById('gh-state');
 const ghInput     = document.getElementById('gh-token');
+const ghEye       = document.getElementById('gh-eye');
 const ghForget    = document.getElementById('gh-forget');
 
 const logTa    = document.getElementById('log-textarea');
@@ -788,6 +822,10 @@ clearBtn.addEventListener('click', () => {
 // actionner pour le consulter.
 setBtn.addEventListener('click', () => {
   logTa.value = appLog.join('\n');
+  ghInput.value = getToken();     // le token enregistré est relisible (masqué par défaut)
+  ghInput.type = 'password';
+  ghEye.classList.remove('actif');
+  document.getElementById('gh-diag').innerHTML = '';
   updateGhUI();
   updateClearButton();
   setView.hidden = false;
@@ -795,6 +833,16 @@ setBtn.addEventListener('click', () => {
   logMsg('Panneau des réglages ouvert');
 });
 document.getElementById('set-back').addEventListener('click', () => { setView.hidden = true; });
+
+// Affiche ou masque le token en clair
+ghEye.addEventListener('click', () => {
+  const clair = ghInput.type === 'password';
+  ghInput.type = clair ? 'text' : 'password';
+  ghEye.classList.toggle('actif', clair);
+  ghEye.title = clair ? 'Masquer le token' : 'Afficher le token';
+});
+
+document.getElementById('gh-test').addEventListener('click', testerGitHub);
 
 // La carte d'historique n'est construite qu'à l'ouverture de la section : Leaflet
 // a besoin d'un conteneur de taille connue, ce qui n'est pas le cas tant que le
@@ -1248,6 +1296,202 @@ function updateGhUI(){
   if(ghState) ghState.textContent = has ? 'connecté — sauvegarde active' : 'non connecté';
   ghForget.hidden = !has;
 }
+// --- Test de connexion GitHub, étape par étape ---
+// Chaque vérification dit ce qui a échoué ET quoi faire pour y remédier :
+// un simple « HTTP 404 » ne permet pas de savoir si c'est le dépôt, la branche,
+// le token ou ses permissions qui posent problème.
+const GH_AIDE_TOKEN =
+  'Crée un token sur <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener">'
+  + 'github.com/settings/personal-access-tokens</a> : « Fine-grained token », '
+  + 'Repository access → Only select repositories → <code>' + GH_REPO + '</code>, '
+  + 'puis Permissions → Repository permissions → Contents : <strong>Read and write</strong>. '
+  + 'Colle-le ici et appuie sur Enregistrer.';
+
+function diagLigne(etat, texte, remede){
+  const ico = etat === 'ok' ? '✅' : (etat === 'warn' ? '⚠️' : '❌');
+  return '<li class="diag ' + etat + '"><span class="diag-ico">' + ico + '</span>'
+    + '<div><p class="diag-txt">' + texte + '</p>'
+    + (remede ? '<p class="diag-fix">' + remede + '</p>' : '')
+    + '</div></li>';
+}
+
+async function testerGitHub(){
+  const zone = document.getElementById('gh-diag');
+  const btn  = document.getElementById('gh-test');
+  const lignes = [];
+  const rendre = () => { zone.innerHTML = '<ul class="diag-list">' + lignes.join('') + '</ul>'; };
+
+  // On teste ce qui est dans le champ s'il est rempli, sinon le token enregistré :
+  // on peut ainsi vérifier un nouveau token avant de l'enregistrer.
+  const token = ghInput.value.trim() || getToken();
+  btn.disabled = true;
+  btn.textContent = 'Test en cours…';
+  zone.innerHTML = '<p class="set-etat">Test en cours…</p>';
+  logMsg('Test de connexion GitHub lancé');
+
+  const fini = (etat) => {
+    rendre();
+    btn.disabled = false;
+    btn.textContent = 'Tester la connexion';
+    logMsg('Test de connexion GitHub terminé', { conclusion: etat });
+  };
+
+  if(!token){
+    lignes.push(diagLigne('err', 'Aucun token : la sauvegarde en ligne est inactive.', GH_AIDE_TOKEN));
+    return fini('aucun token');
+  }
+
+  // 1) Forme du token — un copier-coller incomplet est une cause fréquente
+  if(/^github_pat_/.test(token)){
+    lignes.push(diagLigne('ok', 'Token de type « fine-grained » (github_pat_…), ' + token.length + ' caractères.'));
+  }else if(/^ghp_/.test(token)){
+    lignes.push(diagLigne('ok', 'Token classique (ghp_…), ' + token.length + ' caractères.'));
+  }else{
+    lignes.push(diagLigne('warn', 'Le token ne commence ni par <code>github_pat_</code> ni par <code>ghp_</code>.',
+      'Le copier-coller est peut-être incomplet, ou tu as collé autre chose (mot de passe, URL). '
+      + 'Affiche-le avec l\'œil pour le relire. ' + GH_AIDE_TOKEN));
+  }
+
+  const H = {
+    'Authorization': 'Bearer ' + token,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28'
+  };
+  const appel = async (url) => {
+    const r = await fetch(url, { headers: H });
+    let d = null;
+    try{ d = await r.json(); }catch(e){}
+    return { r, d };
+  };
+
+  // 2) Le token est-il valide ? (identité du compte)
+  let rep;
+  try{
+    rep = await appel('https://api.github.com/user');
+  }catch(e){
+    lignes.push(diagLigne('err', 'Impossible de joindre <code>api.github.com</code> (' + esc(e.message) + ').',
+      'Connexion coupée, mode avion, ou un réseau qui filtre GitHub (Wi-Fi d\'hôtel, réseau d\'entreprise). '
+      + 'Réessaie en 4G ou sur un autre réseau. L\'application continue de fonctionner sans la sauvegarde en ligne.'));
+    return fini('réseau injoignable');
+  }
+  if(rep.r.status === 401){
+    lignes.push(diagLigne('err', 'Token refusé par GitHub (401 — mauvaises informations d\'identification).',
+      'Le token est faux, expiré, ou il a été révoqué. Les tokens fine-grained ont une date d\'expiration : '
+      + 'vérifie-la dans les réglages GitHub, et regénère-en un au besoin. ' + GH_AIDE_TOKEN));
+    return fini('token invalide');
+  }
+  if(!rep.r.ok){
+    lignes.push(diagLigne('err', 'Réponse inattendue de GitHub sur la vérification du token (HTTP '
+      + rep.r.status + ' — ' + esc((rep.d && rep.d.message) || 'sans détail') + ').',
+      'Si le code est 403, c\'est souvent un quota d\'appels épuisé : attends une heure et recommence.'));
+    return fini('HTTP ' + rep.r.status);
+  }
+  const compte = (rep.d && rep.d.login) || '?';
+  lignes.push(diagLigne('ok', 'Token valide — connecté au compte <strong>' + esc(compte) + '</strong>.'));
+  if(compte !== GH_OWNER){
+    lignes.push(diagLigne('warn', 'Ce token appartient à <strong>' + esc(compte)
+      + '</strong>, alors que le dépôt visé est celui de <strong>' + GH_OWNER + '</strong>.',
+      'Ça peut fonctionner si ce compte a un accès en écriture au dépôt, mais le plus souvent '
+      + 'c\'est le signe qu\'on s\'est connecté avec le mauvais compte GitHub.'));
+  }
+  const reste = rep.r.headers.get('X-RateLimit-Remaining');
+  if(reste !== null && +reste < 100){
+    lignes.push(diagLigne('warn', 'Quota d\'appels GitHub presque épuisé (' + esc(reste) + ' restants).',
+      'Le quota se recharge tout seul au bout d\'une heure.'));
+  }
+  rendre();
+
+  // 3) Le dépôt est-il accessible avec ce token ?
+  const urlRepo = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
+  rep = await appel(urlRepo);
+  if(rep.r.status === 404){
+    lignes.push(diagLigne('err', 'Dépôt <code>' + GH_OWNER + '/' + GH_REPO + '</code> introuvable pour ce token.',
+      'Soit le dépôt n\'existe pas sous ce nom (attention aux majuscules), soit — cas le plus fréquent — '
+      + 'le token fine-grained ne l\'a pas dans sa liste : dans les réglages du token, '
+      + 'Repository access → Only select repositories, et coche <code>' + GH_REPO + '</code>. '
+      + 'Un dépôt privé absent de cette liste est invisible, d\'où le 404 plutôt qu\'un 403.'));
+    return fini('dépôt inaccessible');
+  }
+  if(!rep.r.ok){
+    lignes.push(diagLigne('err', 'Accès au dépôt refusé (HTTP ' + rep.r.status + ' — '
+      + esc((rep.d && rep.d.message) || 'sans détail') + ').',
+      'Vérifie que le token n\'a pas été bloqué par une règle de l\'organisation propriétaire du dépôt.'));
+    return fini('dépôt refusé');
+  }
+  const depot = rep.d || {};
+  lignes.push(diagLigne('ok', 'Dépôt <strong>' + esc(depot.full_name || (GH_OWNER + '/' + GH_REPO))
+    + '</strong> accessible' + (depot.private ? ' (privé)' : ' (public)') + '.'));
+
+  // 4) Droit d'écriture — un token en lecture seule laisse tout passer jusqu'à l'enregistrement
+  const perms = depot.permissions || {};
+  if(perms.push === false){
+    lignes.push(diagLigne('err', 'Ce token n\'a que le droit de LECTURE sur le dépôt.',
+      'La sauvegarde échouera au moment d\'écrire visites.json. Dans les réglages du token : '
+      + 'Permissions → Repository permissions → Contents : <strong>Read and write</strong> '
+      + '(après modification, un token fine-grained peut demander l\'approbation du propriétaire).'));
+  }else if(perms.push === true){
+    lignes.push(diagLigne('ok', 'Droit d\'écriture confirmé sur le dépôt.'));
+  }else{
+    lignes.push(diagLigne('warn', 'Droits non communiqués par GitHub pour ce token.',
+      'Le test d\'écriture réel n\'a lieu qu\'à la prochaine synchronisation.'));
+  }
+  rendre();
+
+  // 5) La branche configurée existe-t-elle ? (main vs master)
+  rep = await appel(urlRepo + '/branches/' + GH_BRANCH);
+  if(rep.r.status === 404){
+    let dispo = '';
+    try{
+      const br = await appel(urlRepo + '/branches');
+      if(Array.isArray(br.d)) dispo = br.d.map(b => b.name).join(', ');
+    }catch(e){}
+    lignes.push(diagLigne('err', 'La branche <code>' + GH_BRANCH + '</code> n\'existe pas dans ce dépôt.'
+      + (dispo ? ' Branches présentes : <code>' + esc(dispo) + '</code>.' : ''),
+      'C\'est le cas classique d\'un dépôt en <code>master</code>. Corrige la constante '
+      + '<code>GH_BRANCH</code> en tête du script de cette page, ou renomme la branche sur GitHub.'));
+    return fini('branche absente');
+  }
+  if(rep.r.ok){
+    lignes.push(diagLigne('ok', 'Branche <code>' + GH_BRANCH + '</code> trouvée.'));
+  }
+  rendre();
+
+  // 6) État du fichier visites.json
+  rep = await appel(urlRepo + '/contents/' + GH_PATH + '?ref=' + GH_BRANCH);
+  if(rep.r.status === 404){
+    lignes.push(diagLigne('warn', 'Le fichier <code>' + GH_PATH + '</code> n\'existe pas encore sur la branche.',
+      'Ce n\'est pas une erreur : il sera créé tout seul à la première sauvegarde, '
+      + 'c\'est-à-dire au prochain relevé de position.'));
+  }else if(rep.r.ok){
+    const taille = (rep.d && rep.d.size) ? Math.round(rep.d.size / 1024) : 0;
+    lignes.push(diagLigne('ok', 'Fichier <code>' + GH_PATH + '</code> présent (' + taille + ' ko).'));
+  }else{
+    lignes.push(diagLigne('warn', 'Lecture de <code>' + GH_PATH + '</code> impossible (HTTP ' + rep.r.status + ').'));
+  }
+
+  // 7) La page publiée sert-elle bien ce fichier ? (source de la fusion au démarrage)
+  try{
+    const rp = await fetch(HISTORY_URL, { cache: 'no-store' });
+    if(rp.ok){
+      lignes.push(diagLigne('ok', 'Le fichier publié est lisible par l\'application au démarrage.'));
+    }else{
+      lignes.push(diagLigne('warn', 'Le fichier publié renvoie HTTP ' + rp.status + '.',
+        'GitHub Pages met une à deux minutes à publier un fichier tout juste écrit, et le dépôt doit '
+        + 'être public avec Pages activé. Sans lui, la liste locale reste complète : seule la '
+        + 'récupération sur un autre appareil est concernée.'));
+    }
+  }catch(e){
+    lignes.push(diagLigne('warn', 'Fichier publié injoignable (' + esc(e.message) + ').',
+      'Sans conséquence pour l\'usage courant : la liste locale fait foi.'));
+  }
+
+  const soucis = lignes.filter(l => l.indexOf('class="diag err"') >= 0).length;
+  lignes.push(diagLigne(soucis ? 'err' : 'ok',
+    soucis ? soucis + ' problème(s) bloquant(s) à corriger ci-dessus.'
+           : 'Tout est en ordre : la sauvegarde en ligne fonctionnera.'));
+  fini(soucis ? soucis + ' problème(s)' : 'OK');
+}
+
 function ghHeaders(){
   return {
     'Authorization': 'Bearer ' + getToken(),
