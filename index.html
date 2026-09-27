@@ -416,7 +416,26 @@
   .gem-photo figcaption strong{font-size:15px}
   .gem-photo-txt{font-size:14px;color:var(--ink);line-height:1.45}
   .gem-credit{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
-  .gem-suite{align-self:flex-start}
+  /* Zone de question de suite, sous le fil de la conversation affichée */
+  .gem-followup{
+    display:flex;flex-direction:column;gap:10px;
+    border-top:1px dashed var(--line);padding-top:14px;
+  }
+  .gem-followup[hidden]{display:none}
+  .gem-fu-lab{margin:0;font-size:13px;line-height:1.5;color:var(--ink-soft)}
+  .gem-fu-lab strong{color:var(--contour-dark)}
+  .gem-fu-q{
+    width:100%;font-family:var(--sans);font-size:15px;line-height:1.45;
+    padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+    background:var(--paper);color:var(--ink);resize:vertical;box-sizing:border-box;
+  }
+  .gem-fu-q:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  /* Numéro d'échange, affiché dès la deuxième question d'un même sujet */
+  .gem-tour-num{
+    display:block;font-family:var(--mono);font-size:11px;font-weight:600;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);
+    margin-bottom:4px;
+  }
   .gem-avert{
     margin:10px 0 0;font-size:13px;color:var(--signal);
     border-top:1px dashed var(--line);padding-top:10px;
@@ -545,7 +564,7 @@
       <p class="eyebrow">Relevé de position</p>
       <div class="head-tools">
         <button class="version" id="app-version" type="button"
-                title="Voir l'historique des versions">v3.8</button>
+                title="Voir l'historique des versions">v3.9</button>
         <button class="gear" id="set-btn" type="button"
                 title="Réglages" aria-label="Réglages">⚙</button>
       </div>
@@ -731,11 +750,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.8';
+const APP_VERSION = 'v3.9';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v3.9', txt:"Enchaînement des questions dans la section Gemini : dès qu'une réponse est affichée, une zone « Question de suite » apparaît sous le fil, rappelant le sujet en cours. Chaque question de suite part avec tout l'échange précédent — Gemini répond donc dans le contexte de la conversation — et le fil affiche l'historique complet, question et réponse, numérotées dès le deuxième échange. Le bouton bascule « Poursuivre cette conversation » disparaît : enchaîner ne demande plus d'activer un mode, et le champ du haut reste réservé à l'ouverture d'un nouveau sujet." },
   { num:'v3.8', txt:"Correction d'une fausse alerte du test de connexion GitHub : le compte du token était comparé au propriétaire du dépôt en tenant compte de la casse, si bien que « Hammerinhank » et « hammerinhank » — le même compte, GitHub ignorant la casse des noms d'utilisateur — déclenchaient un avertissement « mauvais compte GitHub ». La comparaison ignore désormais la casse." },
   { num:'v3.7', txt:"Réglages GitHub : le token enregistré est maintenant relisible (bouton œil pour l'afficher en clair) et un bouton « Tester la connexion » vérifie tout l'enchaînement — forme du token, validité et compte associé, quota d'appels, accès au dépôt, droit d'écriture, existence de la branche, présence de visites.json, lisibilité du fichier publié. Chaque échec est expliqué (ce qui ne va pas) et accompagné de la marche à suivre pour le corriger, avec les liens et les réglages exacts à changer côté GitHub." },
   { num:'v3.6', txt:"Les trois boutons techniques du bas de page (Effacer, Connexion GitHub, Journal) disparaissent : ils sont regroupés dans un panneau « Réglages » ouvert par une roue dentée discrète en haut à droite. La sauvegarde GitHub y est expliquée (à quoi elle sert, ce qu'on perd sans elle) et son état est affiché. Le journal technique s'y affiche directement dans sa fenêtre de texte, sans bouton à actionner. « Effacer » devient « Oublier le lieu affiché », avec la précision qu'il ne touche pas aux lieux consultés — ceux-là se suppriment un par un dans leur section." },
@@ -2444,16 +2464,26 @@ function renderGemini(lat, lon, ctx){
     '<summary><h2>Demander à Gemini</h2></summary>' +
     '<div class="gem-body">' +
       '<p class="muted gem-intro">Pose une question libre sur ce lieu, ou choisis un sujet. ' +
-        'Chaque sujet garde sa réponse : un bouton entouré de vert a déjà répondu, le rouvrir ' +
-        "n'interroge pas Gemini à nouveau.</p>" +
+        'Une fois la réponse arrivée, tu peux enchaîner les questions de suite : Gemini garde ' +
+        "tout l'échange en tête. Chaque sujet garde son fil — un bouton entouré de vert a déjà " +
+        'répondu, le rouvrir n\'interroge pas Gemini à nouveau.</p>' +
       '<div class="gem-chips"></div>' +
-      '<textarea class="gem-q" rows="2" placeholder="Ta question sur ce lieu…"></textarea>' +
+      '<textarea class="gem-q" rows="2" placeholder="Nouvelle question sur ce lieu…"></textarea>' +
       '<div class="gem-actions">' +
         '<button type="button" class="btn2 btn-blue gem-send">Demander</button>' +
       '</div>' +
       '<p class="gem-status"></p>' +
       '<div class="gem-thread"></div>' +
-      '<button type="button" class="btn2 btn-slate gem-suite" hidden>Poursuivre cette conversation</button>' +
+      // Zone de question de suite : apparaît dès qu'une conversation est affichée
+      // et reste sous le fil, pour enchaîner sans avoir à activer quoi que ce soit.
+      '<div class="gem-followup" hidden>' +
+        '<p class="gem-fu-lab">Question de suite sur <strong class="gem-fu-sujet"></strong> — ' +
+          "Gemini reçoit tout l'échange ci-dessus avec ta question.</p>" +
+        '<textarea class="gem-fu-q" rows="2" placeholder="Et sinon… ?"></textarea>' +
+        '<div class="gem-actions">' +
+          '<button type="button" class="btn2 btn-blue gem-fu-send">Demander la suite</button>' +
+        '</div>' +
+      '</div>' +
 
       // --- Tout le technique est rassemblé ici, replié par défaut ---
       '<details class="gem-param">' +
@@ -2507,7 +2537,10 @@ function renderGemini(lat, lon, ctx){
   const chips    = el.querySelector('.gem-chips');
   const champ    = el.querySelector('.gem-q');
   const btnSend  = el.querySelector('.gem-send');
-  const btnSuite = el.querySelector('.gem-suite');
+  const zoneSuite = el.querySelector('.gem-followup');
+  const sujetSuite = el.querySelector('.gem-fu-sujet');
+  const champSuite = el.querySelector('.gem-fu-q');
+  const btnSuite  = el.querySelector('.gem-fu-send');
   const zoneStatut = el.querySelector('.gem-status');
   const fil      = el.querySelector('.gem-thread');
   const param    = el.querySelector('.gem-param');
@@ -2535,7 +2568,6 @@ function renderGemini(lat, lon, ctx){
   // Une conversation = { label, question, tours:[{ q, r, modele, tronque }] }
   let convs   = chargerConvs(LIEU);
   let courant = null;      // conversation affichée
-  let modeSuite = false;   // la prochaine question prolonge la conversation affichée
   let enCours = false;
 
   function statut(msg){ zoneStatut.textContent = msg || ''; }
@@ -2651,10 +2683,13 @@ function renderGemini(lat, lon, ctx){
 
   function afficherConv(conv){
     courant = conv;
-    modeSuite = false;
     fil.innerHTML = '';
     conv.tours.forEach((t, i) => {
-      ajouterBulle('gem-q-bubble', esc(t.q));
+      // Les échanges sont numérotés dès qu'il y en a plusieurs : on suit ainsi
+      // l'enchaînement des questions et des réponses d'un même sujet.
+      const numero = conv.tours.length > 1
+        ? '<span class="gem-tour-num">Question ' + (i + 1) + '</span>' : '';
+      ajouterBulle('gem-q-bubble', numero + esc(t.q));
       // Un tour peut porter une galerie de photos (sujet « Photos emblématiques »)
       // au lieu d'un texte : dans ce cas c'est la galerie qui s'affiche.
       const corps = (t.photos && t.photos.length)
@@ -2674,23 +2709,28 @@ function renderGemini(lat, lon, ctx){
     });
     majChips();
     majSuite();
-    fil.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const dernier = fil.lastElementChild;
+    if(dernier) dernier.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
+  // La zone de suite n'a de sens qu'avec une conversation affichée ; elle rappelle
+  // sur quel sujet on enchaîne, puisque plusieurs sujets coexistent pour un même lieu.
   function majSuite(){
-    btnSuite.hidden = !courant;
-    btnSuite.textContent = modeSuite
-      ? 'Annuler la suite (poser une nouvelle question)'
-      : 'Poursuivre cette conversation';
-    champ.placeholder = (modeSuite && courant)
-      ? 'Question de suite sur « ' + courant.label + ' »…'
-      : 'Ta question sur ce lieu…';
+    zoneSuite.hidden = !courant;
+    if(courant) sujetSuite.textContent = '« ' + courant.label + ' »';
   }
 
-  btnSuite.addEventListener('click', () => {
-    modeSuite = !modeSuite;
-    majSuite();
-    if(modeSuite) champ.focus();
+  function envoyerSuite(){
+    if(!courant) return;
+    const q = champSuite.value.trim();
+    if(!q){ statut("Écris d'abord ta question de suite."); champSuite.focus(); return; }
+    champSuite.value = '';
+    envoyer(q, { conv: courant });
+  }
+
+  btnSuite.addEventListener('click', envoyerSuite);
+  champSuite.addEventListener('keydown', (ev) => {
+    if(ev.key === 'Enter' && !ev.shiftKey){ ev.preventDefault(); envoyerSuite(); }
   });
 
   // --- Sujet « Photos emblématiques » : Gemini donne les sujets, l'app trouve les images ---
@@ -2706,7 +2746,6 @@ function renderGemini(lat, lon, ctx){
     const conv = { label, question: QUESTION_PHOTOS, mode: 'photos', tours: [] };
     convs.push(conv);
     courant = conv;
-    modeSuite = false;
     fil.innerHTML = '';
     enCours = true;
     btnSend.disabled = true;
@@ -2785,9 +2824,8 @@ function renderGemini(lat, lon, ctx){
       return;
     }
 
-    // Conversation visée : celle qu'on prolonge, ou une nouvelle
+    // Conversation visée : celle qu'on prolonge (question de suite), ou une nouvelle
     let conv = o.conv || null;
-    if(!conv && modeSuite && courant) conv = courant;
     const nouvelle = !conv;
     if(nouvelle){
       conv = { label: o.label || libelleCourt(q), question: q, tours: [] };
@@ -2805,7 +2843,6 @@ function renderGemini(lat, lon, ctx){
 
     if(nouvelle || !o.silencieux) courant = conv;
     if(nouvelle) fil.innerHTML = '';
-    modeSuite = false;
     majChips();
     majSuite();
 
