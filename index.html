@@ -564,7 +564,7 @@
       <p class="eyebrow">Relevé de position</p>
       <div class="head-tools">
         <button class="version" id="app-version" type="button"
-                title="Voir l'historique des versions">v4.0</button>
+                title="Voir l'historique des versions">v4.1</button>
         <button class="gear" id="set-btn" type="button"
                 title="Réglages" aria-label="Réglages">⚙</button>
       </div>
@@ -750,11 +750,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v4.0';
+const APP_VERSION = 'v4.1';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v4.1', txt:"Correction d'une régression de la v4.0 : le chemin d'archivage GitHub était cité dans le texte de la section Gemini avant d'être calculé, ce qui faisait échouer toute la section — et, faute d'isolation, emportait avec elle Street View et Coordonnées, disparues de la page sans message. Le calcul remonte avant la construction du HTML, et chaque section est désormais construite à l'abri : si l'une échoue, elle affiche une carte « section indisponible » avec la cause, les autres s'affichent normalement et le détail va dans le journal technique." },
   { num:'v4.0', txt:"Les conversations Gemini ne s'entassent plus dans le navigateur : le localStorage redevient un simple cache du lieu affiché (son quota d'environ 5 Mo est partagé avec toutes les applications du domaine), et l'archive part sur GitHub, un fichier JSON par lieu — conversations/<3 premiers caractères du geohash>/<geohash>.json, le geohash sur 8 caractères regroupant tout ce qui se trouve à ~40 m près. L'écriture a lieu en quittant le lieu (un commit par lieu, pas un par question), ou à la fermeture de la page ; un envoi qui échoue est mis en file d'attente et retenté au lancement suivant. Revenir sur un lieu déjà visité y récupère ses sujets, qui réapparaissent en boutons verts." },
   { num:'v3.9', txt:"Enchaînement des questions dans la section Gemini : dès qu'une réponse est affichée, une zone « Question de suite » apparaît sous le fil, rappelant le sujet en cours. Chaque question de suite part avec tout l'échange précédent — Gemini répond donc dans le contexte de la conversation — et le fil affiche l'historique complet, question et réponse, numérotées dès le deuxième échange. Le bouton bascule « Poursuivre cette conversation » disparaît : enchaîner ne demande plus d'activer un mode, et le champ du haut reste réservé à l'ouverture d'un nouveau sujet." },
   { num:'v3.8', txt:"Correction d'une fausse alerte du test de connexion GitHub : le compte du token était comparé au propriétaire du dépôt en tenant compte de la casse, si bien que « Hammerinhank » et « hammerinhank » — le même compte, GitHub ignorant la casse des noms d'utilisateur — déclenchaient un avertissement « mauvais compte GitHub ». La comparaison ignore désormais la casse." },
@@ -1006,17 +1007,33 @@ async function showPlace(lat, lon, opts){
   const wikiRes = results[2];
   const wiki = (wikiRes.status === 'fulfilled' && wikiRes.value) ? wikiRes.value : null;
 
+  // Chaque section est isolée : une erreur dans l'une d'elles n'interrompt plus
+  // la construction des suivantes. Sans ce garde-fou, une simple faute de frappe
+  // dans « Demander à Gemini » faisait disparaître Street View et Coordonnées de
+  // la page, sans aucun message.
+  const section = (nom, fn) => {
+    try{
+      fn();
+    }catch(e){
+      logMsg('ERREUR dans la section « ' + nom + " » : le reste de la page est préservé", {
+        erreur: e.message, pile: String(e.stack || '').split('\n')[1] || ''
+      });
+      card('<h2>' + esc(nom) + '</h2><p class="muted">Section indisponible ('
+        + esc(e.message) + '). Le détail est dans le journal technique, via la roue dentée.</p>');
+    }
+  };
+
   // Section « Demander à Gemini » (repliée par défaut, aucun appel tant qu'on ne pose pas de question)
-  renderGemini(lat, lon, { adresse, wiki });
+  section('Demander à Gemini', () => renderGemini(lat, lon, { adresse, wiki }));
 
   // Vue Street View (repliée par défaut, chargée seulement si on l'ouvre), puis coordonnées
-  renderStreetView(lat, lon);
+  section('Street View', () => renderStreetView(lat, lon));
 
   // Les coordonnées s'affichent en dernier, en bas de l'affichage
-  renderCoords(lat, lon, {
+  section('Coordonnées', () => renderCoords(lat, lon, {
     accuracy: o.accuracy, altitude: o.altitude, altitudeAccuracy: o.altitudeAccuracy,
     heading: o.heading, speed: o.speed, at: new Date()
-  });
+  }));
 
   save(lat, lon);
 
@@ -2617,6 +2634,9 @@ function renderGemini(lat, lon, ctx){
   const c = ctx || {};
   const reg0 = reglagesGemini();
   const LIEU = (+lat).toFixed(6) + ',' + (+lon).toFixed(6);
+  // Calculé ici, et non plus bas : le chemin d'archivage est cité dans le texte
+  // de la section, donc il doit exister avant la construction du HTML.
+  const lieuGit = cheminConversations(lat, lon);
   const el = document.createElement('details');
   el.className = 'card';
 
@@ -2737,7 +2757,6 @@ function renderGemini(lat, lon, ctx){
 
   // Une conversation = { label, question, tours:[{ q, r, modele, tronque }] }
   let convs   = chargerConvs(LIEU);
-  const lieuGit = cheminConversations(lat, lon);
   ouvrirLieuGemini(lieuGit.geohash, lieuGit.chemin, convs, c.adresse);
   viderFileAttenteGemini();     // envoie ce qui restait d'un lieu précédent
   let courant = null;      // conversation affichée
