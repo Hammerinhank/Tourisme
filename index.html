@@ -564,7 +564,7 @@
       <p class="eyebrow">Relevé de position</p>
       <div class="head-tools">
         <button class="version" id="app-version" type="button"
-                title="Voir l'historique des versions">v3.9</button>
+                title="Voir l'historique des versions">v4.0</button>
         <button class="gear" id="set-btn" type="button"
                 title="Réglages" aria-label="Réglages">⚙</button>
       </div>
@@ -750,11 +750,12 @@ const label    = document.getElementById('btn-label');
 const status   = document.getElementById('status');
 const result   = document.getElementById('result');
 
-const APP_VERSION = 'v3.9';
+const APP_VERSION = 'v4.0';
 
 // Historique des versions : quelques lignes par version, la plus récente en tête.
 // Il s'affiche en appuyant sur le numéro de version, en haut de la page.
 const VERSIONS = [
+  { num:'v4.0', txt:"Les conversations Gemini ne s'entassent plus dans le navigateur : le localStorage redevient un simple cache du lieu affiché (son quota d'environ 5 Mo est partagé avec toutes les applications du domaine), et l'archive part sur GitHub, un fichier JSON par lieu — conversations/<3 premiers caractères du geohash>/<geohash>.json, le geohash sur 8 caractères regroupant tout ce qui se trouve à ~40 m près. L'écriture a lieu en quittant le lieu (un commit par lieu, pas un par question), ou à la fermeture de la page ; un envoi qui échoue est mis en file d'attente et retenté au lancement suivant. Revenir sur un lieu déjà visité y récupère ses sujets, qui réapparaissent en boutons verts." },
   { num:'v3.9', txt:"Enchaînement des questions dans la section Gemini : dès qu'une réponse est affichée, une zone « Question de suite » apparaît sous le fil, rappelant le sujet en cours. Chaque question de suite part avec tout l'échange précédent — Gemini répond donc dans le contexte de la conversation — et le fil affiche l'historique complet, question et réponse, numérotées dès le deuxième échange. Le bouton bascule « Poursuivre cette conversation » disparaît : enchaîner ne demande plus d'activer un mode, et le champ du haut reste réservé à l'ouverture d'un nouveau sujet." },
   { num:'v3.8', txt:"Correction d'une fausse alerte du test de connexion GitHub : le compte du token était comparé au propriétaire du dépôt en tenant compte de la casse, si bien que « Hammerinhank » et « hammerinhank » — le même compte, GitHub ignorant la casse des noms d'utilisateur — déclenchaient un avertissement « mauvais compte GitHub ». La comparaison ignore désormais la casse." },
   { num:'v3.7', txt:"Réglages GitHub : le token enregistré est maintenant relisible (bouton œil pour l'afficher en clair) et un bouton « Tester la connexion » vérifie tout l'enchaînement — forme du token, validité et compte associé, quota d'appels, accès au dépôt, droit d'écriture, existence de la branche, présence de visites.json, lisibilité du fichier publié. Chaque échec est expliqué (ce qui ne va pas) et accompagné de la marche à suivre pour le corriger, avec les liens et les réglages exacts à changer côté GitHub." },
@@ -2433,6 +2434,161 @@ function formaterTexteGemini(t){
 // dès qu'on se déplace, l'ancien contenu est remplacé.
 const GEM_CONVS_LS = 'ou-suis-je:gemini-convs';
 
+// =====================================================================
+//  Archivage des conversations sur GitHub — un fichier JSON par lieu
+// =====================================================================
+// Le localStorage n'est qu'un cache de travail : il ne garde qu'un lieu à la
+// fois, et son quota (~5 Mo) est partagé par TOUTES les applications servies
+// depuis le même domaine. Le fond documentaire va donc sur GitHub, découpé par
+// lieu pour qu'aucun fichier ne grossisse indéfiniment :
+//     conversations/<3 premiers caractères du geohash>/<geohash>.json
+// Le geohash (8 caractères, ~38 m) sert de clé : revenir au même endroit à
+// quelques mètres près retombe sur le même fichier, là où des coordonnées
+// brutes en créeraient un nouveau à chaque relevé. Les trois premiers
+// caractères regroupent les lieux par zone : un répertoire ne se remplit pas
+// de milliers de fichiers.
+const GEM_DOSSIER    = 'conversations';
+const GEM_ATTENTE_LS = 'ou-suis-je:gemini-attente';   // écritures GitHub en souffrance
+
+function cheminConversations(lat, lon){
+  const g = geohash(lat, lon, 8);
+  return { geohash: g, chemin: GEM_DOSSIER + '/' + g.slice(0, 3) + '/' + g + '.json' };
+}
+
+// Lecture : le dépôt étant public, elle ne demande aucun token. On passe par
+// raw.githubusercontent plutôt que par l'API pour éviter le quota de 60 appels
+// par heure des requêtes non authentifiées.
+async function lireConversationsGitHub(chemin){
+  const url = 'https://raw.githubusercontent.com/' + GH_OWNER + '/' + GH_REPO
+            + '/' + GH_BRANCH + '/' + chemin;
+  try{
+    const r = await fetch(url, { cache: 'no-store' });
+    if(!r.ok) return null;                      // 404 = aucune conversation archivée ici
+    const d = await r.json();
+    return (d && Array.isArray(d.convs)) ? d : null;
+  }catch(e){
+    logMsg('Conversations Gemini : lecture GitHub impossible', { erreur: e.message });
+    return null;
+  }
+}
+
+// Écriture d'un fichier quelconque du dépôt (création ou mise à jour)
+async function ecrireFichierGitHub(chemin, objet, message){
+  if(!getToken()) throw new Error('aucun token GitHub enregistré');
+  const base = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/' + chemin;
+  const lireSha = async () => {
+    const r = await fetch(base + '?ref=' + GH_BRANCH, { headers: ghHeaders() });
+    if(r.status === 200) return (await r.json()).sha;
+    if(r.status === 404) return null;
+    throw new Error('lecture (HTTP ' + r.status + ')');
+  };
+  const corps = (sha) => JSON.stringify({
+    message,
+    content: utf8ToBase64(JSON.stringify(objet, null, 2)),
+    branch: GH_BRANCH,
+    ...(sha ? { sha } : {})
+  });
+  let sha = await lireSha();
+  let r = await fetch(base, { method: 'PUT', headers: ghHeaders(), body: corps(sha) });
+  if(r.status === 409){                          // quelqu'un a écrit entre-temps
+    sha = await lireSha();
+    r = await fetch(base, { method: 'PUT', headers: ghHeaders(), body: corps(sha) });
+  }
+  if(!r.ok){
+    const info = await r.json().catch(() => ({}));
+    throw new Error(info.message || ('HTTP ' + r.status));
+  }
+}
+
+// File d'attente : une écriture qui échoue (hors ligne, en voiture, sans token)
+// n'est jamais perdue, elle est retentée au lancement suivant.
+function fileAttenteGemini(){
+  try{ return JSON.parse(localStorage.getItem(GEM_ATTENTE_LS) || '[]'); }catch(e){ return []; }
+}
+function setFileAttenteGemini(f){
+  try{ localStorage.setItem(GEM_ATTENTE_LS, JSON.stringify(f)); }catch(e){
+    logMsg('Conversations Gemini : file d\'attente non enregistrée', { erreur: e.message });
+  }
+}
+function ajouterAttenteGemini(entree){
+  const f = fileAttenteGemini().filter(x => x.chemin !== entree.chemin);   // un seul état par lieu
+  f.push(entree);
+  setFileAttenteGemini(f);
+  logMsg('Conversations Gemini : lieu mis en attente d\'envoi', {
+    chemin: entree.chemin, sujets: (entree.donnees.convs || []).length, enAttente: f.length
+  });
+}
+
+let envoiAttenteEnCours = false;
+
+async function viderFileAttenteGemini(){
+  if(envoiAttenteEnCours) return;
+  const f = fileAttenteGemini();
+  if(!f.length) return;
+  if(!getToken()){
+    logMsg('Conversations Gemini : envoi différé, aucun token GitHub', { enAttente: f.length });
+    return;
+  }
+  envoiAttenteEnCours = true;
+  const total = f.length;
+  const restants = [];
+  for(let i = 0; i < f.length; i++){
+    const e = f[i];
+    try{
+      await ecrireFichierGitHub(e.chemin, e.donnees,
+        'Conversations Gemini — ' + (e.donnees.adresse || e.donnees.geohash || ''));
+      logMsg('Conversations Gemini : lieu archivé', {
+        traités: i + 1, restants: total - i - 1, chemin: e.chemin
+      });
+    }catch(err){
+      restants.push(e);
+      logMsg('Conversations Gemini : échec, gardé en attente', {
+        traités: i + 1, restants: total - i - 1, chemin: e.chemin, erreur: err.message
+      });
+    }
+  }
+  setFileAttenteGemini(restants);
+  envoiAttenteEnCours = false;
+}
+
+// Lieu dont les conversations sont en cours d'usage. Il n'est déposé dans la
+// file d'attente qu'au moment où on le quitte : un seul commit par lieu, et non
+// un par question.
+let gemLieuCourant = null;
+
+function ouvrirLieuGemini(geoh, chemin, convs, adresse){
+  if(gemLieuCourant && gemLieuCourant.geohash !== geoh) deposerLieuGemini();
+  if(!gemLieuCourant || gemLieuCourant.geohash !== geoh){
+    gemLieuCourant = {
+      geohash: geoh, chemin, modifie: false,
+      donnees: { geohash: geoh, adresse: adresse || '', maj: '', convs }
+    };
+  }else{
+    gemLieuCourant.donnees.convs = convs;
+    if(adresse) gemLieuCourant.donnees.adresse = adresse;
+  }
+}
+
+// Quitter le lieu : ce qui a changé part dans la file, puis on tente l'envoi.
+function deposerLieuGemini(){
+  if(!gemLieuCourant || !gemLieuCourant.modifie) return;
+  gemLieuCourant.donnees.maj = new Date().toISOString();
+  ajouterAttenteGemini({
+    chemin: gemLieuCourant.chemin,
+    geohash: gemLieuCourant.geohash,
+    donnees: gemLieuCourant.donnees
+  });
+  gemLieuCourant.modifie = false;
+}
+
+// La page qu'on ferme ou qu'on met en arrière-plan compte comme un départ :
+// le lieu est mis en file ici (une écriture réseau lancée à cet instant
+// n'aboutirait pas de façon fiable) et envoyé au prochain lancement.
+window.addEventListener('pagehide', deposerLieuGemini);
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden') deposerLieuGemini();
+});
+
 function chargerConvs(lieu){
   try{
     const d = JSON.parse(localStorage.getItem(GEM_CONVS_LS) || 'null');
@@ -2441,7 +2597,18 @@ function chargerConvs(lieu){
   return [];
 }
 function sauverConvs(lieu, convs){
-  try{ localStorage.setItem(GEM_CONVS_LS, JSON.stringify({ lieu, convs })); }catch(e){}
+  try{
+    localStorage.setItem(GEM_CONVS_LS, JSON.stringify({ lieu, convs }));
+  }catch(e){
+    // Quota du navigateur atteint : on le dit au lieu de perdre l'échange en silence
+    logMsg('Conversations Gemini : cache local non enregistré', { erreur: e.message });
+    setStatus('Mémoire du navigateur saturée : la conversation sera archivée sur GitHub.', true);
+  }
+  // Le lieu courant devient « à archiver » ; l'envoi aura lieu quand on le quittera
+  if(gemLieuCourant){
+    gemLieuCourant.donnees.convs = convs;
+    gemLieuCourant.modifie = true;
+  }
 }
 
 // Section « Demander à Gemini » : une par affichage de lieu, repliée par défaut.
@@ -2526,8 +2693,11 @@ function renderGemini(lat, lon, ctx){
 
           '<div class="gem-champ">' +
             '<span class="gem-lab">Conversations mémorisées</span>' +
-            '<p class="gem-note">Les réponses obtenues pour ce lieu sont gardées dans ce navigateur et ' +
-              'remplacées dès qu\'on change de lieu. <button type="button" class="linklike gem-oublier">Oublier les réponses de ce lieu</button></p>' +
+            '<p class="gem-note">Le navigateur ne garde que le lieu affiché ; en quittant ce lieu, ses ' +
+              'conversations sont archivées sur GitHub dans <code>' + esc(lieuGit.chemin) + '</code> ' +
+              '(un fichier par lieu, retrouvé automatiquement si tu reviens ici). ' +
+              'Sans token GitHub, elles restent seulement sur cet appareil. ' +
+              '<button type="button" class="linklike gem-oublier">Oublier les réponses de ce lieu</button></p>' +
           '</div>' +
 
         '</div>' +
@@ -2567,6 +2737,9 @@ function renderGemini(lat, lon, ctx){
 
   // Une conversation = { label, question, tours:[{ q, r, modele, tronque }] }
   let convs   = chargerConvs(LIEU);
+  const lieuGit = cheminConversations(lat, lon);
+  ouvrirLieuGemini(lieuGit.geohash, lieuGit.chemin, convs, c.adresse);
+  viderFileAttenteGemini();     // envoie ce qui restait d'un lieu précédent
   let courant = null;      // conversation affichée
   let enCours = false;
 
@@ -2915,7 +3088,27 @@ function renderGemini(lat, lon, ctx){
 
   construireChips();
   majSuite();
-  if(convs.length) statut(convs.length + ' réponse(s) déjà en mémoire pour ce lieu (boutons verts).');
+  if(convs.length) statut(convs.length + ' sujet(s) déjà en mémoire pour ce lieu (boutons verts).');
+
+  // Conversations archivées lors d'une visite précédente : elles arrivent de
+  // GitHub, donc après coup — les boutons se complètent tout seuls à l'arrivée.
+  // Le cache local fait foi en cas de doublon : il est forcément plus récent.
+  (async () => {
+    const archive = await lireConversationsGitHub(lieuGit.chemin);
+    if(!archive || !archive.convs.length) return;
+    let ajouts = 0;
+    for(const v of archive.convs){
+      if(v && v.label && !trouverConv(v.label)){ convs.push(v); ajouts++; }
+    }
+    if(!ajouts) return;
+    // Récupération : le cache local est remis à niveau, sans marquer le lieu
+    // comme modifié (rien de neuf à réécrire sur GitHub).
+    try{ localStorage.setItem(GEM_CONVS_LS, JSON.stringify({ lieu: LIEU, convs })); }catch(e){}
+    if(gemLieuCourant) gemLieuCourant.donnees.convs = convs;
+    construireChips();
+    statut(ajouts + ' sujet(s) retrouvé(s) dans les archives de ce lieu.');
+    logMsg('Conversations Gemini : archives relues', { chemin: lieuGit.chemin, sujets: ajouts });
+  })();
 
   result.appendChild(el);
   return el;
